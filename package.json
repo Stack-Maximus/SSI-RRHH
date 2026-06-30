@@ -1,0 +1,19 @@
+{
+  "name": "solicitudes-metalium",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.12"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.2",
+    "sweetalert2": "^11.26.25",
+    "xlsx": "^0.18.5"
+  }
+}

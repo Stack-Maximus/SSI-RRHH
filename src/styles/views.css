@@ -1,0 +1,311 @@
+/* Estilos compartidos por las vistas dentro de #content */
+
+/* Cards base */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 24px 28px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+.card h3 {
+  font-size: 16px;
+  margin-bottom: 14px;
+  font-family: var(--font-d);
+}
+
+/* Placeholder de vistas en construcción */
+.placeholder {
+  max-width: 680px;
+  margin: 40px auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 48px 40px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+.placeholder.construction { border-style: dashed; }
+.placeholder.error { border-color: var(--danger); }
+
+.placeholder-icon {
+  font-size: 56px;
+  margin-bottom: 12px;
+  opacity: .8;
+}
+.placeholder h2 {
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+.placeholder .lead {
+  color: var(--text-m);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 8px 0 20px;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.placeholder .hint {
+  font-size: 12px;
+  color: var(--text-s);
+  margin-top: 8px;
+}
+
+.phase-tag {
+  display: inline-block;
+  padding: 5px 12px;
+  background: var(--accent-100);
+  color: var(--accent-700);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+
+/* Dashboard · welcome card */
+.welcome-card {
+  background: linear-gradient(135deg, var(--primary), var(--primary-300));
+  color: #fff;
+  border-radius: var(--r-lg);
+  padding: 28px 32px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+}
+.welcome-card h2 {
+  font-size: 26px;
+  margin-bottom: 4px;
+}
+.welcome-card .lead {
+  opacity: .85;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Dashboard · KPI grid */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--t);
+}
+.kpi-card:hover {
+  border-color: var(--border-s);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+.kpi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text-s);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.kpi-value {
+  font-family: var(--font-d);
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+.kpi-meta {
+  font-size: 11px;
+  color: var(--text-m);
+  margin-top: 4px;
+}
+
+/* Roadmap list dentro del dashboard */
+.roadmap-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.roadmap-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-m);
+  line-height: 1.5;
+}
+.roadmap-list .tag {
+  background: var(--neutral-bg);
+  color: var(--text);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  font-family: ui-monospace, monospace;
+  margin-top: 1px;
+  min-width: 36px;
+  text-align: center;
+}
+/* Estilos para vistas con datos · tablas, badges, stats, grids */
+
+/* Grid de 2 columnas (para dashboard) */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 900px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+/* Card header con título + botón a la derecha */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.card-header h3 { margin: 0; }
+
+/* Botones secundarios */
+.btn {
+  padding: 8px 16px;
+  border-radius: var(--r);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--t);
+  font-family: inherit;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-700); }
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--accent-100);
+  color: var(--accent-700);
+  border-color: var(--accent-100);
+}
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Tabla de datos genérica */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table thead th {
+  text-align: left;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  color: var(--text-m);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.data-table tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr:hover { background: var(--surface-2); }
+.data-table .muted { color: var(--text-m); font-size: 12px; }
+
+/* Badges de estado */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.badge-success { background: var(--success-bg); color: var(--success); }
+.badge-info    { background: var(--info-bg);    color: var(--info); }
+.badge-warning { background: var(--warning-bg); color: var(--warning); }
+.badge-danger  { background: var(--danger-bg);  color: var(--danger); }
+.badge-neutral { background: var(--neutral-bg); color: var(--neutral); }
+
+/* Stat rows en cards */
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.stat-row:last-child { border-bottom: none; }
+.stat-row span { color: var(--text-m); }
+.stat-row strong { color: var(--text); font-size: 15px; font-family: var(--font-d); }
+.stat-row.stat-role strong { color: var(--accent-700); }
+
+/* Estados de carga y vacío */
+.loading-inline {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-m);
+  font-size: 13px;
+}
+.kpi-loading {
+  opacity: .35;
+  letter-spacing: .15em;
+}
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-m);
+}
+.empty-state p { margin: 6px 0; font-size: 13px; }
+.empty-state .hint { font-size: 12px; color: var(--text-s); }
+
+/* Mobile · cards y tablas ajustadas */
+@media (max-width: 768px) {
+  .card {
+    padding: 16px;
+  }
+
+  .card-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  /* Wrapper de tabla scrolleable horizontal */
+  #vehiculos-table,
+  #proveedores-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* La tabla mantiene un ancho mínimo legible; el scroll horizontal aparece solo si hace falta */
+  .data-table {
+    min-width: 540px;
+  }
+
+  /* Celdas más compactas en mobile */
+  .data-table thead th,
+  .data-table tbody td {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+}

@@ -1,0 +1,169 @@
+/* Formularios · inputs, selects, layout, validación */
+
+.view-form {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.form-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 28px 32px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 600px) {
+  .form-grid-2 { grid-template-columns: 1fr; }
+  .form-card { padding: 20px; }
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-m);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.form-label .req { color: var(--danger); margin-left: 2px; }
+
+.form-field input[type="text"],
+.form-field input[type="email"],
+.form-field input[type="tel"],
+.form-field input[type="date"],
+.form-field input[type="time"],
+.form-field input[type="number"],
+.form-field select,
+.form-field textarea,
+.modal-body input[type="text"],
+.modal-body select,
+.modal-body textarea {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-s);
+  border-radius: var(--r);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  transition: all var(--t);
+  width: 100%;
+}
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus,
+.modal-body input:focus,
+.modal-body select:focus,
+.modal-body textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 155, 219, .15);
+}
+.form-field textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+
+.form-error {
+  background: var(--danger-bg);
+  border: 1px solid rgba(220, 38, 38, .35);
+  color: var(--danger);
+  padding: 10px 14px;
+  border-radius: var(--r);
+  font-size: 13px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* Segmented control para selección tipo radio (tipos de SSI) */
+.segment-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 600px) {
+  .segment-control { grid-template-columns: 1fr; }
+}
+
+.segment-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--r);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--t);
+}
+.segment-btn:hover {
+  border-color: var(--border-s);
+  background: var(--surface-2);
+}
+.segment-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-100);
+}
+.segment-icon { font-size: 20px; }
+.segment-btn > span:nth-child(2) {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.segment-desc {
+  font-size: 12px;
+  color: var(--text-m);
+  font-weight: 400;
+}
+
+/* Toggles de bonos (traslado) */
+.bono-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  margin-top: 8px;
+}
+.bono-toggle input { width: 16px; height: 16px; cursor: pointer; }
+.bono-fields {
+  margin-top: 8px;
+  padding: 14px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border-s);
+  border-radius: var(--r);
+}
+
+.form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+@media (max-width: 720px) { .form-grid-3 { grid-template-columns: 1fr; } }

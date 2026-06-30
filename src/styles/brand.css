@@ -1,0 +1,454 @@
+/* =============================================================================
+   Metalium · Brand patterns
+   Aplica la identidad visual de Metalium SpA a la app:
+   - Áreas AZULES (login, sidebar, welcome card) → gradiente azul profundo + halftone dots + acentos geométricos
+   - Áreas BLANCAS (modales, popups) → blanco con acentos sutiles en azul
+   ============================================================================= */
+
+
+/* =================================================================
+   1. LOGIN SCREEN · Metalium blue pattern
+   ================================================================= */
+
+#login-screen,
+.login-screen,
+.auth-screen {
+  position: relative;
+  min-height: 100vh;           /* ← agregar */
+  display: flex;                /* ← agregar */
+  align-items: center;          /* ← agregar */
+  justify-content: center;      /* ← agregar */
+  background:
+    linear-gradient(45deg,
+      #009BDB 0%,
+      #0066B3 25%,
+      #003F8F 55%,
+      #002870 80%,
+      #001541 100%) !important;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Halftone dots fade desde top-right */
+#login-screen::before,
+.login-screen::before,
+.auth-screen::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 70%; height: 80%;
+  background-image:
+    radial-gradient(circle, rgba(0, 8, 40, 0.45) 1.4px, transparent 1.7px);
+  background-size: 14px 14px;
+  -webkit-mask-image: linear-gradient(225deg, black 0%, transparent 75%);
+  mask-image: linear-gradient(225deg, black 0%, transparent 75%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Acento geométrico diagonal · efecto rombo/triángulo */
+#login-screen::after,
+.login-screen::after,
+.auth-screen::after {
+  content: '';
+  position: absolute;
+  top: 5%; right: -10%;
+  width: 65%; aspect-ratio: 1.2;
+  background:
+    linear-gradient(135deg,
+      rgba(0, 155, 219, 0.40) 0%,
+      rgba(0, 80, 170, 0.55) 50%,
+      rgba(0, 20, 80, 0.65) 100%);
+  clip-path: polygon(28% 0, 100% 22%, 72% 100%, 0 78%);
+  pointer-events: none;
+  z-index: -1;
+  filter: blur(.5px);
+}
+
+
+/* =================================================================
+   2. SIDEBAR · Metalium blue pattern (más pronunciado, igual al PDF)
+   ================================================================= */
+
+#sidebar {
+  background:
+    linear-gradient(165deg,
+      #001541 0%,
+      #001A5A 20%,
+      #002870 45%,
+      #003F8F 75%,
+      #0050A8 100%) !important;
+  overflow-x: hidden;
+  isolation: isolate;
+}
+
+/* Halftone dots MÁS visibles · ocupan ~60% del sidebar superior */
+#sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 100%; height: 60%;
+  background-image:
+    radial-gradient(circle, rgba(0, 155, 219, 0.35) 1.5px, transparent 1.8px);
+  background-size: 12px 12px;
+  -webkit-mask-image: linear-gradient(210deg, black 0%, transparent 72%);
+  mask-image: linear-gradient(210deg, black 0%, transparent 72%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Acento geométrico · paralelogramo azul claro atravesando el medio */
+#sidebar::after {
+  content: '';
+  position: absolute;
+  top: 30%; left: -30%;
+  width: 160%; aspect-ratio: 1.4;
+  background:
+    linear-gradient(135deg,
+      rgba(0, 155, 219, 0.28) 0%,
+      rgba(0, 110, 200, 0.22) 50%,
+      transparent 100%);
+  clip-path: polygon(30% 0, 100% 22%, 72% 100%, 0 78%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+
+/* =================================================================
+   3. WELCOME CARD (Dashboard) · Metalium pattern
+   ================================================================= */
+
+.welcome-card {
+  position: relative;
+  background:
+    linear-gradient(45deg,
+      #009BDB 0%,
+      #006EAA 28%,
+      #003F8F 60%,
+      #002765 85%,
+      #001541 100%) !important;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.welcome-card::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 60%; height: 100%;
+  background-image:
+    radial-gradient(circle, rgba(0, 155, 219, 0.35) 1.2px, transparent 1.5px);
+  background-size: 12px 12px;
+  -webkit-mask-image: linear-gradient(225deg, black 0%, transparent 75%);
+  mask-image: linear-gradient(225deg, black 0%, transparent 75%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.welcome-card::after {
+  content: '';
+  position: absolute;
+  top: -40%; right: -10%;
+  width: 55%; aspect-ratio: 1;
+  background:
+    linear-gradient(135deg,
+      rgba(0, 155, 219, 0.30) 0%,
+      rgba(0, 50, 130, 0.45) 100%);
+  clip-path: polygon(30% 0, 100% 30%, 70% 100%, 0 70%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+
+/* =================================================================
+   4. MODALES · acentos sutiles en blanco (patrón PNG)
+   ================================================================= */
+
+.modal {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Dots sutiles en top-left */
+.modal::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 140px; height: 100px;
+  background-image:
+    radial-gradient(circle, rgba(0, 155, 219, 0.15) 1px, transparent 1.4px);
+  background-size: 11px 11px;
+  -webkit-mask-image: linear-gradient(135deg, black 0%, transparent 85%);
+  mask-image: linear-gradient(135deg, black 0%, transparent 85%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Acento triangular sutil en bottom-right */
+.modal::after {
+  content: '';
+  position: absolute;
+  bottom: 0; right: 0;
+  width: 110px; height: 110px;
+  background: linear-gradient(135deg,
+    rgba(0, 155, 219, 0.05),
+    rgba(0, 155, 219, 0.22));
+  clip-path: polygon(50% 0, 100% 50%, 100% 100%, 0 100%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+
+/* =================================================================
+   5. SWEETALERT2 · acentos sutiles (mismo patrón que modales)
+   ================================================================= */
+
+.swal2-popup:not(.swal2-toast) {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.swal2-popup:not(.swal2-toast)::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 120px; height: 90px;
+  background-image:
+    radial-gradient(circle, rgba(0, 155, 219, 0.18) 1px, transparent 1.4px);
+  background-size: 10px 10px;
+  -webkit-mask-image: linear-gradient(225deg, black 0%, transparent 82%);
+  mask-image: linear-gradient(225deg, black 0%, transparent 82%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+
+/* =================================================================
+   6. CONTENIDO PRINCIPAL · stripes diagonales con halftones
+   ================================================================= */
+
+#content {
+  position: relative;
+  isolation: isolate;
+  /* Fondo con dots sutiles repartidos en todo el área */
+  background-image:
+    radial-gradient(circle, rgba(0, 26, 90, 0.07) 1.1px, transparent 1.4px) !important;
+  background-size: 16px 16px !important;
+}
+
+/* Stripe derecha · paralelogramo azul oscuro con halftone dots */
+#content::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 48%; height: 100%;
+  background-image:
+    /* Capa 1 (arriba): halftone dots */
+    radial-gradient(circle, rgba(0, 26, 90, 0.38) 1.4px, transparent 1.7px),
+    /* Capa 2 (abajo): gradient azul profundo */
+    linear-gradient(135deg,
+      rgba(0, 80, 170, 0.08) 0%,
+      rgba(0, 40, 110, 0.28) 45%,
+      rgba(0, 15, 60, 0.32) 100%);
+  background-size: 12px 12px, 100% 100%;
+  background-repeat: repeat, no-repeat;
+  /* Forma de paralelogramo (stripe diagonal) */
+  clip-path: polygon(30% 0, 100% 0, 100% 100%, 65% 100%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Stripe izquierda inferior · paralelogramo celeste con halftone dots */
+#content::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 42%; height: 75%;
+  background-image:
+    /* Capa 1: halftone dots */
+    radial-gradient(circle, rgba(0, 90, 170, 0.28) 1.3px, transparent 1.6px),
+    /* Capa 2: gradient celeste */
+    linear-gradient(45deg,
+      rgba(0, 155, 219, 0.22) 0%,
+      rgba(0, 90, 180, 0.20) 50%,
+      transparent 100%);
+  background-size: 11px 11px, 100% 100%;
+  background-repeat: repeat, no-repeat;
+  /* Paralelogramo apuntando arriba-derecha */
+  clip-path: polygon(0 35%, 55% 0, 100% 70%, 70% 100%, 0 100%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* =================================================================
+   7. LOGIN CARD · contenedor del formulario en login
+   La tarjeta blanca encima del fondo azul mantiene su frosted glass.
+   ================================================================= */
+
+.login-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.login-card::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; right: -1px;
+  width: 80px; height: 80px;
+  background: linear-gradient(135deg,
+    rgba(0, 155, 219, 0.08),
+    rgba(0, 155, 219, 0.22));
+  clip-path: polygon(50% 0, 100% 50%, 100% 100%, 0 100%);
+  pointer-events: none;
+  z-index: 0;
+  border-bottom-right-radius: inherit;
+}
+
+/* Quitar el recuadro blanco detrás del logo en login */
+.login-brand-logo,
+.login-card .brand-logo,
+.login-screen .brand-logo,
+.auth-screen .brand-logo,
+.login-card-logo,
+.login-card [class*="logo"]:not(img) {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+/* =================================================================
+   8. ACENTO BOTTOM-LEFT · stripe diagonal fixed (no scrollea)
+   ================================================================= */
+
+#app-shell {
+  position: relative;
+}
+
+#app-shell::after {
+  content: '';
+  position: fixed;
+  bottom: 0; left: 250px;
+  width: 280px; height: 200px;
+  background-image:
+    radial-gradient(circle, rgba(0, 26, 90, 0.22) 1.2px, transparent 1.5px),
+    linear-gradient(45deg,
+      rgba(0, 155, 219, 0.15) 0%,
+      rgba(0, 80, 170, 0.22) 60%,
+      transparent 100%);
+  background-size: 10px 10px, 100% 100%;
+  background-repeat: repeat, no-repeat;
+  clip-path: polygon(0 60%, 40% 20%, 100% 100%, 0 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+@media (max-width: 900px) {
+  #app-shell::after { left: 0; }
+}
+
+/* =================================================================
+   9. LOGO DEL SIDEBAR · quitar recuadro blanco + invertir ícono
+   ================================================================= */
+
+.sidebar-brand-logo {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.sidebar-brand-logo img {
+  filter: brightness(0) invert(1);  /* convierte el casco a blanco puro */
+}
+
+/* También cubre el del login si todavía aparece con recuadro */
+.login-card img,
+.login-screen img[src*="logo" i],
+.auth-screen img[src*="logo" i] {
+  filter: brightness(0) invert(1);
+}
+
+/* =================================================================
+   10. BOTONES · colores semánticos
+   ================================================================= */
+
+.btn-danger,
+button.btn-danger {
+  background: #dc2626 !important;
+  color: #fff !important;
+  border: 1px solid #dc2626 !important;
+}
+.btn-danger:hover:not(:disabled),
+button.btn-danger:hover:not(:disabled) {
+  background: #b91c1c !important;
+  border-color: #b91c1c !important;
+}
+
+.btn-success,
+button.btn-success {
+  background: #16a34a !important;
+  color: #fff !important;
+  border: 1px solid #16a34a !important;
+}
+.btn-success:hover:not(:disabled),
+button.btn-success:hover:not(:disabled) {
+  background: #15803d !important;
+  border-color: #15803d !important;
+}
+
+.btn-warning,
+button.btn-warning {
+  background: #f59e0b !important;
+  color: #fff !important;
+  border: 1px solid #f59e0b !important;
+}
+.btn-warning:hover:not(:disabled),
+button.btn-warning:hover:not(:disabled) {
+  background: #d97706 !important;
+  border-color: #d97706 !important;
+}
+
+/* =================================================================
+   11. PERFORMANCE · scroll fluido en el modal de detalle SSI
+   ================================================================= */
+
+/* Aislar el modal en su propia capa de composición · evita repaint del fondo */
+.modal {
+  contain: layout style;
+  transform: translateZ(0);
+}
+
+/* Aislar el repaint del body cuando scrolleás dentro */
+.modal-body {
+  contain: paint;
+}
+
+/* Promover pseudo-elementos decorativos a la GPU · no se repintan en scroll */
+.modal::before,
+.modal::after {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Imágenes en archivos · alto fijo + object-fit, no aspect-ratio */
+.archivo-thumb {
+  height: 140px !important;
+  aspect-ratio: auto !important;
+}
+.archivo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Quitar transform en hover del archivo-card · transform causa reflow */
+.archivo-card {
+  transition: box-shadow 0.12s ease, border-color 0.12s ease !important;
+}
+.archivo-card:hover {
+  transform: none !important;
+}

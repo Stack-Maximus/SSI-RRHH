@@ -1,0 +1,11 @@
+/* Entry point de estilos · orden: tokens -> base -> componentes -> brand (al final) */
+@import './tokens.css';
+@import './base.css';
+@import './login.css';
+@import './shell.css';
+@import './sidebar.css';
+@import './views.css';
+@import './forms.css';
+@import './solicitudes.css';
+/* brand.css va al FINAL para sobreescribir fondos y aplicar la identidad Metalium */
+@import './brand.css';

@@ -19,34 +19,43 @@ import { renderCargos } from '../views/cargos.js';
 import { renderSolicitudes, renderHistorial } from '../views/solicitudes.js';
 import { renderDashboard } from '../views/dashboard.js';
 import { renderTrabajadores } from '../views/trabajadores.js';
+import { renderContrataciones } from '../views/contrataciones.js';
+import { renderHomologacion } from '../views/homologacion.js';
+import { renderChecklistDocumentos } from '../views/checklist-documentos.js';
 import { makePlaceholder } from '../views/placeholder.js';
 
 const VIEWS = {
-  'inicio':          renderInicio,
-  'nueva-solicitud': renderNuevaSolicitud,
-  'mis-solicitudes': renderMisSolicitudes,
-  'bandeja':         renderBandeja,
-  'solicitudes':     renderSolicitudes,
-  'historial':       renderHistorial,
-  'usuarios':        renderUsuarios,
-  'centros-costo':   renderCentrosCosto,
-  'cargos':          renderCargos,
-  'trabajadores':    renderTrabajadores,
-  'kpis':            renderDashboard
+  'inicio':               renderInicio,
+  'nueva-solicitud':      renderNuevaSolicitud,
+  'mis-solicitudes':      renderMisSolicitudes,
+  'bandeja':              renderBandeja,
+  'solicitudes':          renderSolicitudes,
+  'historial':            renderHistorial,
+  'contrataciones':       renderContrataciones,
+  'homologacion':         renderHomologacion,
+  'checklist-documentos': renderChecklistDocumentos,
+  'usuarios':             renderUsuarios,
+  'centros-costo':        renderCentrosCosto,
+  'cargos':               renderCargos,
+  'trabajadores':         renderTrabajadores,
+  'kpis':                 renderDashboard
 };
 
 const TITLES = {
-  'inicio':          ['Inicio', 'Resumen de tu actividad'],
-  'nueva-solicitud': ['Nueva solicitud', 'Crear una solicitud de ingreso o traslado'],
-  'mis-solicitudes': ['Mis solicitudes', 'Solicitudes que creaste y su estado'],
-  'bandeja':         ['Bandeja de aprobación', 'Solicitudes pendientes de tu aprobación'],
-  'solicitudes':     ['Solicitudes', 'Todas las solicitudes'],
-  'historial':       ['Historial', 'Solicitudes finalizadas'],
-  'usuarios':        ['Usuarios', 'Gestión de cuentas y roles'],
-  'centros-costo':   ['Centros de costo', 'Obras y administradores de obra'],
-  'cargos':          ['Cargos', 'Lista de cargos para las solicitudes'],
-  'trabajadores':    ['Trabajadores', 'Personal de la empresa'],
-  'kpis':            ['Dashboard', 'Métricas y tiempos de respuesta']
+  'inicio':               ['Inicio', 'Resumen de tu actividad'],
+  'nueva-solicitud':      ['Nueva solicitud', 'Crear una solicitud de ingreso o traslado'],
+  'mis-solicitudes':      ['Mis solicitudes', 'Solicitudes que creaste y su estado'],
+  'bandeja':              ['Bandeja de aprobación', 'Solicitudes pendientes de tu aprobación'],
+  'solicitudes':          ['Solicitudes', 'Todas las solicitudes'],
+  'historial':            ['Historial', 'Solicitudes finalizadas'],
+  'contrataciones':       ['Contratación', 'Ingresos aprobados en proceso de contratación'],
+  'homologacion':         ['Homologación SST', 'Documentos de contratación para homologar ante el cliente'],
+  'checklist-documentos': ['Checklist de documentos', 'Catálogo de documentos del proceso de contratación'],
+  'usuarios':             ['Usuarios', 'Gestión de cuentas y roles'],
+  'centros-costo':        ['Centros de costo', 'Obras y administradores de obra'],
+  'cargos':               ['Cargos', 'Lista de cargos para las solicitudes'],
+  'trabajadores':         ['Trabajadores', 'Personal de la empresa'],
+  'kpis':                 ['Dashboard', 'Métricas y tiempos de respuesta']
 };
 
 export const Router = {

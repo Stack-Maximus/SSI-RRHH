@@ -1,0 +1,101 @@
+/* Evaluación de Personal · formulario de criterios y gestión de ciclos */
+
+.dimension-block {
+  margin-bottom: 28px;
+}
+
+.dimension-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.dimension-header h3 {
+  font-family: var(--font-d);
+  font-size: 15px;
+}
+
+.dimension-peso {
+  font-size: 12px;
+  color: var(--text-m);
+}
+
+.criterio-row {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.criterio-row:last-child {
+  border-bottom: none;
+}
+
+.criterio-texto {
+  font-size: 13.5px;
+  margin-bottom: 10px;
+}
+
+.escala-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.escala-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border-s);
+  background: var(--surface);
+  color: var(--text-m);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--t);
+}
+.escala-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.escala-btn.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.criterio-comentario {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  font-family: inherit;
+  resize: vertical;
+}
+.criterio-comentario:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.eva-sticky-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 14px 0;
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.eva-progreso {
+  font-size: 12.5px;
+  color: var(--text-m);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-s, var(--text-m));
+}

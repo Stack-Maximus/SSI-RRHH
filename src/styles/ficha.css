@@ -1,0 +1,313 @@
+/* ============================================================================
+   Ficha del trabajador + capa de visualización.
+
+   Los colores de las marcas viven en ui/charts.js (VIZ) porque el SVG se
+   genera desde JS; acá van solo el cromado (tinta, grilla, superficies) y el
+   layout. Los textos usan SIEMPRE tokens de texto, nunca el color de la serie.
+
+   La app es light-only (no hay prefers-color-scheme en ningún otro archivo),
+   así que estos gráficos declaran un solo modo a propósito: un bloque dark
+   acá dejaría los gráficos oscuros dentro de una app clara.
+   ============================================================================ */
+
+/* La ficha es un tablero, no un formulario: no usa .view-form (720px) sino su
+   propio ancho, para que los gráficos tengan aire. */
+.view-ficha {
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+/* Las tablas anchas hacen scroll dentro de su tarjeta en vez de desbordarla. */
+.tabla-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tabla-scroll .data-table { min-width: 640px; }
+
+.viz-eje-nota {
+  font-size: 11.5px;
+  color: var(--text-s);
+  margin: 10px 0 0;
+  line-height: 1.45;
+}
+
+/* --- Cabecera de la ficha ------------------------------------------------- */
+
+.ficha-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.ficha-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-d);
+  font-size: 19px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ficha-ident { flex: 1 1 260px; min-width: 0; }
+
+.ficha-nombre {
+  font-family: var(--font-d);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 2px;
+  line-height: 1.2;
+}
+
+.ficha-cargo { font-size: 13.5px; color: var(--text-m); margin: 0 0 8px; }
+
+.ficha-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Nombre clickeable en el listado de trabajadores */
+.link-perfil {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  margin: 0;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--r-sm);
+}
+.link-perfil span { border-bottom: 1px solid transparent; transition: border-color var(--t), color var(--t); }
+.link-perfil:hover span,
+.link-perfil:focus-visible span { color: var(--accent-700); border-bottom-color: var(--accent); }
+.link-perfil:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- Tira de KPIs --------------------------------------------------------- */
+
+.ficha-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.ficha-kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ficha-kpi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text-s);
+  font-weight: 600;
+}
+
+.ficha-kpi-valor {
+  font-family: var(--font-b);
+  font-size: 27px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+  /* Proporcionales a propósito: tabular-nums afloja un número grande. */
+  font-variant-numeric: normal;
+}
+
+/* El número que encabeza la ficha. Uno solo por vista. */
+.ficha-kpi.is-hero .ficha-kpi-valor { font-size: 50px; letter-spacing: -.02em; }
+
+.ficha-kpi-pie {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  flex-wrap: wrap;
+  min-height: 30px;
+}
+
+.ficha-kpi-meta { font-size: 12px; color: var(--text-m); }
+
+/* Delta: el signo y la palabra hacen el trabajo; el color solo acompaña. */
+.ficha-delta { font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.ficha-delta.is-sube { color: #006300; }
+.ficha-delta.is-baja { color: #b91c1c; }
+.ficha-delta.is-igual { color: var(--text-m); }
+
+/* --- Tendencia en palabras ------------------------------------------------ */
+
+.ficha-veredicto {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  margin-bottom: 20px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.ficha-veredicto-icono { font-size: 17px; line-height: 1.2; flex-shrink: 0; }
+.ficha-veredicto strong { font-weight: 700; }
+.ficha-veredicto.is-mejora { border-color: #bbf7d0; background: var(--success-bg); }
+.ficha-veredicto.is-baja { border-color: #fecaca; background: var(--danger-bg); }
+.ficha-veredicto.is-estable { border-color: var(--border); background: var(--surface-2); }
+
+/* --- Capa de visualización ------------------------------------------------ */
+
+.viz-card { margin-bottom: 20px; }
+
+.viz-card h3 { margin-bottom: 2px; }
+
+.viz-sub {
+  font-size: 12.5px;
+  color: var(--text-m);
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+
+svg.viz { display: block; width: 100%; height: auto; overflow: visible; }
+
+/* Textos del gráfico: tokens de tinta, nunca el color de la serie. */
+.viz-tick { font-family: var(--font-b); font-size: 10.5px; fill: var(--text-s); }
+.viz-cat { font-family: var(--font-b); font-size: 11.5px; fill: var(--text-m); }
+.viz-ref { font-family: var(--font-b); font-size: 10px; fill: var(--text-s); }
+.viz-endlabel { font-family: var(--font-b); font-size: 12px; font-weight: 700; fill: var(--text); }
+
+.viz-hit, .viz-hit-bar { cursor: crosshair; outline: none; }
+.viz-hit:focus-visible, .viz-hit-bar:focus-visible { fill: rgba(0, 155, 219, .10); }
+.viz-hit-bar { cursor: pointer; }
+.viz-hit-bar.is-hover { fill: rgba(15, 23, 42, .04); }
+
+.viz-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 4px 0 14px;
+  font-size: 12.5px;
+  color: var(--text-m);
+}
+.viz-legend-item { display: inline-flex; align-items: center; gap: 7px; }
+.viz-legend-key.is-line { width: 16px; height: 2px; border-radius: 1px; }
+.viz-legend-key.is-rect { width: 11px; height: 11px; border-radius: 2px; }
+
+.viz-spark { width: 108px; height: 30px; display: block; }
+
+/* Small multiples */
+.viz-facets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 20px 24px;
+}
+.viz-facet { margin: 0; min-width: 0; }
+.viz-facet figcaption { display: flex; flex-direction: column; gap: 1px; margin-bottom: 2px; }
+.viz-facet-nombre { font-size: 12.5px; font-weight: 700; color: var(--text); line-height: 1.25; }
+.viz-facet-meta { font-size: 11px; color: var(--text-s); }
+
+/* Tabla equivalente — todo valor del gráfico se puede leer sin hover */
+.viz-tabla { margin-top: 12px; }
+.viz-tabla > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent-700);
+  font-weight: 600;
+  padding: 4px 0;
+  list-style: none;
+}
+.viz-tabla > summary::-webkit-details-marker { display: none; }
+.viz-tabla > summary::before { content: "▸ "; }
+.viz-tabla[open] > summary::before { content: "▾ "; }
+.viz-tabla .data-table { margin-top: 8px; }
+.viz-tabla .data-table td, .viz-tabla .data-table th { font-variant-numeric: tabular-nums; }
+
+/* Tooltip */
+.viz-tooltip {
+  position: fixed;
+  z-index: 3000;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border-s);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  padding: 9px 11px;
+  min-width: 130px;
+  max-width: 260px;
+  font-size: 12px;
+}
+.viz-tooltip[hidden] { display: none; }
+.viz-tooltip-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-m);
+  margin-bottom: 5px;
+  text-transform: none;
+}
+.viz-tooltip-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+.viz-tooltip-key { width: 14px; height: 2px; border-radius: 1px; flex-shrink: 0; }
+.viz-tooltip-row strong {
+  font-size: 14px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.viz-tooltip-serie { color: var(--text-m); font-size: 11.5px; }
+
+/* --- Secciones de la ficha ------------------------------------------------ */
+
+.ficha-seccion-vacia {
+  font-size: 12.5px;
+  color: var(--text-m);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-s);
+  border-radius: var(--r);
+  padding: 14px 16px;
+}
+
+.ficha-huella {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+.ficha-huella-bloque {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  background: var(--surface-2);
+}
+.ficha-huella-bloque h4 {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ficha-huella-cifra {
+  font-family: var(--font-b);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+.ficha-huella-detalle { font-size: 12px; color: var(--text-m); margin-top: 4px; line-height: 1.45; }
+
+@media (max-width: 640px) {
+  .ficha-kpi.is-hero .ficha-kpi-valor { font-size: 40px; }
+  .ficha-nombre { font-size: 20px; }
+}

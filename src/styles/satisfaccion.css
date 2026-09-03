@@ -1,0 +1,138 @@
+/* Encuesta pública de satisfacción — sin sesión, pantalla completa */
+
+.encuesta-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: radial-gradient(circle at 20% 20%, #12296e 0%, var(--primary) 45%, var(--primary-700) 100%);
+}
+
+.encuesta-card {
+  width: 100%;
+  max-width: 560px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  padding: 32px;
+}
+
+.encuesta-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.encuesta-header .logo-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 18px;
+}
+.encuesta-header h1 {
+  font-family: var(--font-d);
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+.encuesta-header p {
+  color: var(--text-m);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.dimension-rating {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.dimension-rating:last-of-type { border-bottom: none; }
+
+.dimension-rating-label {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.estrellas {
+  display: flex;
+  gap: 6px;
+}
+.estrella-btn {
+  background: none;
+  border: none;
+  font-size: 32px;
+  line-height: 1;
+  cursor: pointer;
+  color: #d1d5db;
+  padding: 2px;
+  transition: color 0.15s ease, transform 0.1s ease;
+}
+.estrella-btn:hover { transform: scale(1.1); }
+.estrella-btn.activa { color: #f5b800; }
+
+.nps-pregunta {
+  margin: 24px 0;
+}
+.nps-pregunta-texto {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.nps-escala {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.nps-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-s);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.nps-btn:hover { border-color: var(--accent); }
+.nps-btn.activa {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.nps-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-m);
+  margin-top: 6px;
+}
+
+.encuesta-comentario {
+  width: 100%;
+  min-height: 90px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+}
+
+.encuesta-estado {
+  text-align: center;
+  padding: 40px 20px;
+}
+.encuesta-estado .icono { font-size: 48px; margin-bottom: 16px; }
+.encuesta-estado h2 { font-family: var(--font-d); margin-bottom: 8px; }
+.encuesta-estado p { color: var(--text-m); }
+
+@media (max-width: 480px) {
+  .encuesta-card { padding: 22px; }
+  .nps-btn { width: 30px; height: 30px; font-size: 12px; }
+}

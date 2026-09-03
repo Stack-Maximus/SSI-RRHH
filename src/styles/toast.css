@@ -1,0 +1,25 @@
+/* SweetAlert2 · overrides para consistencia visual con la app */
+.swal2-popup {
+  font-family: var(--font-b);
+  border-radius: var(--r-lg);
+}
+.swal2-title {
+  font-family: var(--font-d);
+  font-size: 18px;
+  letter-spacing: -.01em;
+}
+.swal2-html-container {
+  font-size: 14px;
+  color: var(--text-m);
+}
+.swal2-toast {
+  font-family: var(--font-b);
+}
+.swal2-toast .swal2-title {
+  font-size: 14px;
+  font-family: var(--font-b);
+}
+.swal2-actions button {
+  font-weight: 600;
+  font-family: inherit;
+}

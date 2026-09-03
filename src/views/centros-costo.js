@@ -25,11 +25,22 @@ export async function renderCentrosCosto(container) {
     usuarios.filter(u => u.activo).map(u =>
       `<option value="${u.id}" ${u.id === sel ? 'selected' : ''}>${escapeHtml(u.nombre || u.email)}</option>`).join('');
 
+  // El prevencionista responsable de homologar cambia según el centro de
+  // costo: se asigna acá, igual que el administrador de obra. Se listan
+  // los usuarios con rol prevencionista; si todavía no se creó ninguno,
+  // se muestran todos los usuarios activos como respaldo.
+  const prevencionistas = usuarios.filter(u => u.activo && u.rol === 'prevencionista');
+  const optsPrevencionista = (sel) =>
+    `<option value="">— Sin asignar —</option>` +
+    (prevencionistas.length ? prevencionistas : usuarios.filter(u => u.activo)).map(u =>
+      `<option value="${u.id}" ${u.id === sel ? 'selected' : ''}>${escapeHtml(u.nombre || u.email)}</option>`).join('');
+
   const rows = centros.map(c => `
     <tr data-id="${c.id}" class="${c.activo ? '' : 'row-inactivo'}">
       <td class="mono">${escapeHtml(c.codigo)}</td>
       <td><input type="text" class="c-input" data-field="nombre" value="${escapeHtml(c.nombre)}"></td>
       <td><select class="c-input" data-field="admin_obra_id">${optsAdmin(c.admin_obra_id)}</select></td>
+      <td><select class="c-input" data-field="prevencionista_id">${optsPrevencionista(c.prevencionista_id)}</select></td>
       <td class="u-center"><input type="checkbox" class="c-input" data-field="activo" ${c.activo ? 'checked' : ''}></td>
     </tr>`).join('');
 
@@ -44,13 +55,17 @@ export async function renderCentrosCosto(container) {
         <div class="form-field"><label class="form-label">Administrador de obra</label>
           <select id="nc-admin">${optsAdmin('')}</select></div>
       </div>
+      <div class="form-grid-3" style="margin-top:10px;">
+        <div class="form-field"><label class="form-label">Prevencionista (homologación)</label>
+          <select id="nc-prevencionista">${optsPrevencionista('')}</select></div>
+      </div>
       <div class="form-actions"><button class="btn btn-primary" id="nc-crear">Crear centro</button></div>
     </div>
 
     <div class="sol-toolbar"><span class="muted">${centros.length} centro(s)</span></div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Código</th><th>Nombre</th><th>Administrador de obra</th><th>Activo</th></tr></thead>
+        <thead><tr><th>Código</th><th>Nombre</th><th>Administrador de obra</th><th>Prevencionista (homologación)</th><th>Activo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -60,9 +75,10 @@ export async function renderCentrosCosto(container) {
     const codigo = container.querySelector('#nc-codigo').value.trim();
     const nombre = container.querySelector('#nc-nombre').value.trim();
     const admin_obra_id = container.querySelector('#nc-admin').value || null;
+    const prevencionista_id = container.querySelector('#nc-prevencionista').value || null;
     if (!codigo || !nombre) { Toast.warning('Faltan datos', 'Código y nombre son obligatorios.'); return; }
     try {
-      await Data.crearCentro({ codigo, nombre, admin_obra_id });
+      await Data.crearCentro({ codigo, nombre, admin_obra_id, prevencionista_id });
       Toast.success('Centro creado', '');
       renderCentrosCosto(container);
     } catch (e) {
@@ -80,8 +96,8 @@ export async function renderCentrosCosto(container) {
       const field = el.dataset.field;
       let value;
       if (el.type === 'checkbox') value = el.checked;
-      else value = el.value.trim() === '' ? (field === 'admin_obra_id' ? null : el.value) : el.value;
-      if (field === 'admin_obra_id' && el.value === '') value = null;
+      else value = el.value.trim() === '' ? (['admin_obra_id', 'prevencionista_id'].includes(field) ? null : el.value) : el.value;
+      if (['admin_obra_id', 'prevencionista_id'].includes(field) && el.value === '') value = null;
 
       try {
         await Data.actualizarCentro(id, { [field]: value });

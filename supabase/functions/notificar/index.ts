@@ -4,10 +4,19 @@
 //  El frontend la invoca tras el evento (fire-and-forget).
 //
 //  Payload:
-//   { type: 'pendiente_aprobador', solicitud_id }  -> avisa a los aprobadores pendientes (al crear)
-//   { type: 'cambio_estado',       solicitud_id }  -> al quedar aprobada o rechazada:
+//   { type: 'pendiente_aprobador',   solicitud_id }    -> avisa a los aprobadores pendientes (al crear)
+//   { type: 'cambio_estado',         solicitud_id }    -> al quedar aprobada o rechazada:
 //        * rechazada  -> avisa al solicitante
-//        * aprobada   -> avisa a solicitante + aprobadores + RRHH, con PDF de respaldo adjunto
+//        * aprobada   -> avisa a solicitante + aprobadores + RRHH, con el comprobante en PDF
+//                         (mismo diseño -- encabezado Metalium + Código/Folio -- que el PDF
+//                         que se puede descargar a demanda desde la app, ver comprobante-pdf)
+//   { type: 'contratacion_iniciada', contratacion_id } -> RRHH inició la contratación de una
+//                         solicitud de ingreso ya aprobada: avisa al prevencionista asignado al
+//                         centro de costo de esa solicitud (`centros_costo.prevencionista_id`,
+//                         ver 0009_homologacion_por_centro.sql) para que empiece la homologación
+//                         SST con la documentación que RRHH vaya subiendo. Si el centro todavía no
+//                         tiene prevencionista asignado, no manda nada y devuelve `skipped: true`
+//                         (el frontend le avisa a RRHH en pantalla para que lo asigne).
 //
 //  Deploy:  supabase functions deploy notificar
 //  Secrets: GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_FROM_ADDRESS
@@ -15,8 +24,10 @@
 // =====================================================================
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { PDFDocument, StandardFonts, rgb } from 'npm:pdf-lib@1.17.1';
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64';
+import { construirComprobantePdf } from '../_shared/pdf-comprobante.ts';
+import { tipoTxt } from '../_shared/solicitud-detalle.ts';
+import { LOGO_METALIUM_PNG_B64 } from '../_shared/logo.ts';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -30,8 +41,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
 
   try {
-    const { type, solicitud_id } = await req.json();
-    if (!type || !solicitud_id) return json({ error: 'Faltan type o solicitud_id.' }, 400);
+    const { type, solicitud_id, contratacion_id } = await req.json();
+    if (!type) return json({ error: 'Falta type.' }, 400);
 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const ANON = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -46,9 +57,47 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
     const appUrl = Deno.env.get('APP_URL') || '';
 
+    // ---- contratación iniciada -> avisa al prevencionista del centro ----
+    // Va antes del resto porque usa `contratacion_id`, no `solicitud_id`.
+    if (type === 'contratacion_iniciada') {
+      if (!contratacion_id) return json({ error: 'Falta contratacion_id.' }, 400);
+
+      const { data: contrat, error: cErr } = await admin
+        .from('contrataciones')
+        .select('id, solicitud_id, nombre_candidato, canal, tipo_trabajador')
+        .eq('id', contratacion_id).single();
+      if (cErr || !contrat) return json({ error: 'Contratación no encontrada.' }, 404);
+
+      const { data: solIngreso } = await admin
+        .from('solicitudes').select('id, codigo, folio, centro_origen_id, detalle')
+        .eq('id', contrat.solicitud_id).single();
+      if (!solIngreso) return json({ error: 'La solicitud de esta contratación ya no existe.' }, 404);
+
+      const { data: centro } = await admin
+        .from('centros_costo').select('id, codigo, nombre, prevencionista_id')
+        .eq('id', solIngreso.centro_origen_id).single();
+      if (!centro?.prevencionista_id) {
+        return json({ ok: true, skipped: true, reason: 'centro sin prevencionista asignado' });
+      }
+
+      const { data: prev } = await admin
+        .from('perfiles').select('email, nombre, activo').eq('id', centro.prevencionista_id).single();
+      if (!prev?.email || prev.activo === false) {
+        return json({ ok: true, skipped: true, reason: 'prevencionista sin correo o inactivo' });
+      }
+
+      const token = await graphToken();
+      await graphSend(token, prev.email,
+        `Nueva contratación para homologar — ${contrat.nombre_candidato}`,
+        correoContratacionIniciada(prev.nombre ?? '', contrat, solIngreso, centro, appUrl));
+      return json({ ok: true, enviados: 1 });
+    }
+
+    if (!solicitud_id) return json({ error: 'Falta solicitud_id.' }, 400);
+
     const { data: sol, error: solErr } = await admin
       .from('solicitudes')
-      .select('id, codigo, tipo, estado, solicitante_id, trabajador_id, centro_origen_id, centro_destino_id, motivo, detalle, created_at, decided_at')
+      .select('id, codigo, folio, tipo, estado, solicitante_id, trabajador_id, centro_origen_id, centro_destino_id, motivo, detalle, created_at')
       .eq('id', solicitud_id).single();
     if (solErr || !sol) return json({ error: 'Solicitud no encontrada.' }, 404);
 
@@ -88,7 +137,7 @@ Deno.serve(async (req) => {
       const { data: centros } = await admin.from('centros_costo').select('id, codigo, nombre');
       const cmap = new Map((centros ?? []).map((c) => [c.id, c]));
       const { data: aprs } = await admin
-        .from('aprobaciones').select('aprobador_id, decision, decidido_at, orden')
+        .from('aprobaciones').select('aprobador_id, decision, decidido_at, asignado_at, orden, tiempo_respuesta')
         .eq('solicitud_id', solicitud_id).order('orden');
       const aprIds = (aprs ?? []).map((a) => a.aprobador_id);
       const { data: pers } = await admin
@@ -112,8 +161,10 @@ Deno.serve(async (req) => {
         return json({ ok: true, enviados: s?.email ? 1 : 0 });
       }
 
-      // APROBADA -> PDF de respaldo a solicitante + aprobadores + RRHH
-      const pdfB64 = await construirPdf(sol, cmap, aprs ?? [], pmap, trabNombre);
+      // APROBADA -> comprobante en PDF (con el encabezado Metalium y Código/Folio)
+      // a solicitante + aprobadores + RRHH
+      const pdfBytes = await construirComprobantePdf({ sol, cmap, aprs: aprs ?? [], pmap, trabNombre });
+      const pdfB64 = encodeBase64(pdfBytes);
       const { data: rrhh } = await admin
         .from('perfiles').select('id, nombre, email').eq('rol', 'rrhh').eq('activo', true);
 
@@ -123,7 +174,7 @@ Deno.serve(async (req) => {
       (aprs ?? []).forEach((a) => add(pmap.get(a.aprobador_id)));
       (rrhh ?? []).forEach((r) => add(r));
 
-      const adjuntos = [{ name: `${sol.codigo}.pdf`, b64: pdfB64 }];
+      const adjuntos = [{ name: `${sol.folio || sol.codigo}.pdf`, b64: pdfB64 }];
       let enviados = 0;
       for (const [email, nombre] of dest) {
         await graphSend(token, email, `Solicitud ${sol.codigo} aprobada — respaldo`,
@@ -158,21 +209,36 @@ async function graphToken(): Promise<string> {
 }
 
 type Adjunto = { name: string; b64: string };
+// Logo Metalium, incrustado como adjunto "inline" (Content-ID) en TODOS los
+// correos -- así el encabezado de cada plantilla (ver shell()) lo puede
+// mostrar con <img src="cid:metalium-logo">. Los clientes de correo no
+// muestran imágenes en base64 pegadas directo en el HTML (Outlook las
+// bloquea), así que tiene que ir como adjunto inline, no como data: URI.
+const LOGO_CID = 'metalium-logo';
 async function graphSend(token: string, to: string, subject: string, html: string, adjuntos: Adjunto[] = []) {
   const sender = Deno.env.get('GRAPH_FROM_ADDRESS')!;
-  const message: any = {
-    subject,
-    body: { contentType: 'HTML', content: html },
-    toRecipients: [{ emailAddress: { address: to } }],
-  };
-  if (adjuntos.length) {
-    message.attachments = adjuntos.map((a) => ({
+  const attachments: any[] = [
+    {
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: 'metalium-logo.png',
+      contentType: 'image/png',
+      contentBytes: LOGO_METALIUM_PNG_B64,
+      contentId: LOGO_CID,
+      isInline: true,
+    },
+    ...adjuntos.map((a) => ({
       '@odata.type': '#microsoft.graph.fileAttachment',
       name: a.name,
       contentType: 'application/pdf',
       contentBytes: a.b64,
-    }));
-  }
+    })),
+  ];
+  const message: any = {
+    subject,
+    body: { contentType: 'HTML', content: html },
+    toRecipients: [{ emailAddress: { address: to } }],
+    attachments,
+  };
   const res = await fetch(`https://graph.microsoft.com/v1.0/users/${sender}/sendMail`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -181,112 +247,101 @@ async function graphSend(token: string, to: string, subject: string, html: strin
   if (!res.ok) throw new Error('Graph sendMail: ' + (await res.text()));
 }
 
-// ---------- PDF de respaldo ----------
-function pesos(n: any) {
-  const v = Number(n);
-  if (isNaN(v)) return String(n ?? '—');
-  return '$ ' + v.toLocaleString('es-CL');
-}
-function detalleLineas(sol: any): [string, string][] {
-  const d = sol.detalle || {};
-  const pares: [string, any][] = sol.tipo === 'ingreso' ? [
-    ['Cargo', d.cargo], ['Cantidad', d.cantidad],
-    ['Sueldo líquido pactado', d.sueldo_liquido != null ? pesos(d.sueldo_liquido) : null],
-    ['Tipo de contrato', d.tipo_contrato], ['Plazo', d.plazo], ['Turno', d.turno],
-    ['Horario', d.horario], ['Fecha de ingreso', d.fecha_ingreso], ['Cliente', d.cliente],
-  ] : [
-    ['Cargo', d.cargo], ['Fecha de traslado', d.fecha_traslado],
-    ['Modificaciones', d.modificaciones_contractuales], ['Turno', d.turno], ['Horario', d.horario],
-    ['Sueldo líquido actual', d.sueldo_liquido_actual != null ? pesos(d.sueldo_liquido_actual) : null],
-    ['Nuevo sueldo líquido', d.nuevo_sueldo_liquido != null ? pesos(d.nuevo_sueldo_liquido) : null],
-    ['Bono nocturno', d.bono_nocturno?.aplica ? `Sí (${d.bono_nocturno.porcentaje ?? '—'} · ${d.bono_nocturno.periodo ?? '—'})` : 'No'],
-    ['Bono trato', d.bono_trato?.aplica ? `Sí (${d.bono_trato.monto != null ? pesos(d.bono_trato.monto) : '—'} · ${d.bono_trato.dias_asignacion ?? '—'} días)` : 'No'],
-  ];
-  return pares.filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => [k, String(v)]);
-}
-
-async function construirPdf(sol: any, cmap: Map<any, any>, aprs: any[], pmap: Map<any, any>, trabNombre: string | null): Promise<string> {
-  const doc = await PDFDocument.create();
-  const page = doc.addPage([595, 842]); // A4
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const azul = rgb(0.04, 0.17, 0.35);
-  const gris = rgb(0.4, 0.45, 0.5);
-  const M = 50;
-  let y = 800;
-
-  const text = (t: string, x: number, size: number, f = font, color = rgb(0, 0, 0)) =>
-    page.drawText(t, { x, y, size, font: f, color });
-  const salto = (px = 18) => { y -= px; };
-  const kv = (k: string, v: string) => { text(k, M, 10, bold, gris); text(v, 210, 10, font); salto(17); };
-  const sep = () => { page.drawLine({ start: { x: M, y: y + 6 }, end: { x: 545, y: y + 6 }, thickness: 0.5, color: rgb(0.85, 0.87, 0.9) }); salto(14); };
-
-  text('Metalium · SSI-RRHH', M, 20, bold, azul); salto(24);
-  text('Comprobante de Solicitud Aprobada', M, 13, bold); salto(22);
-  sep();
-
-  kv('Código', sol.codigo ?? '—');
-  kv('Tipo', sol.tipo === 'traslado' ? 'Traslado' : 'Ingreso');
-  kv('Estado', 'APROBADA');
-  kv('Solicitante', pmap.get(sol.solicitante_id)?.nombre ?? '—');
-  if (sol.tipo === 'traslado') {
-    kv('Trabajador', trabNombre ?? '—');
-    kv('Obra origen', cmap.get(sol.centro_origen_id)?.nombre ?? '—');
-    kv('Obra destino', cmap.get(sol.centro_destino_id)?.nombre ?? '—');
-  } else {
-    kv('Centro solicitado', cmap.get(sol.centro_origen_id)?.nombre ?? '—');
-  }
-  kv('Creada', (sol.created_at ?? '').toString().slice(0, 10));
-  kv('Aprobada', (sol.decided_at ?? '').toString().slice(0, 10));
-  salto(6); sep();
-
-  text('Detalle', M, 12, bold, azul); salto(20);
-  for (const [k, v] of detalleLineas(sol)) kv(k, v);
-  salto(6); sep();
-
-  text('Aprobaciones', M, 12, bold, azul); salto(20);
-  aprs.forEach((a, i) => {
-    const nom = pmap.get(a.aprobador_id)?.nombre ?? `Aprobador ${i + 1}`;
-    const fecha = (a.decidido_at ?? '').toString().slice(0, 10);
-    kv(`${i + 1}. ${nom}`, `${a.decision}${fecha ? ' · ' + fecha : ''}`);
-  });
-
-  if (sol.motivo) { salto(6); sep(); text('Motivo', M, 12, bold, azul); salto(18); text(String(sol.motivo).slice(0, 90), M, 10, font); }
-
-  y = 40;
-  text('Documento generado automáticamente por SSI-RRHH · Metalium', M, 8, font, gris);
-
-  const bytes = await doc.save();
-  return encodeBase64(bytes);
-}
-
 // ---------- Plantillas de correo ----------
+// Estilos en línea (nada de <style> ni clases): es lo único que se ve bien
+// de forma pareja en Outlook/Exchange, que es el cliente real acá (Graph +
+// buzón Metalium). El logo va como adjunto inline (ver LOGO_CID en
+// graphSend) porque Outlook bloquea las imágenes pegadas en base64 dentro
+// del propio HTML.
+const AZUL = '#1B9BD8';
+const NAVY = '#1B2340';
+const GRIS_ETIQUETA = '#8791AA';
+const GRIS_TEXTO = '#3D4258';
+const FUENTE = "'Segoe UI', Arial, Helvetica, sans-serif";
+
 function shell(inner: string) {
-  return `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1b2a4a;max-width:520px;margin:auto">
-    <h2 style="color:#0a2c5a">Metalium · SSI-RRHH</h2>${inner}
-    <p style="font-size:12px;color:#667">Sistema de Solicitudes de Ingreso y Traslado de Personal.</p></div>`;
+  return `<div style="background:#eef1f5;padding:32px 16px;font-family:${FUENTE}">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e3e7ee;border-radius:10px">
+      <tr><td style="height:6px;line-height:6px;font-size:0;background:${AZUL};border-radius:10px 10px 0 0">&nbsp;</td></tr>
+      <tr><td style="padding:26px 32px 16px">
+        <img src="cid:metalium-logo" width="140" height="29" alt="Metalium" style="display:block;width:140px;height:29px;border:0" />
+        <div style="margin-top:12px;font-size:11px;font-weight:700;letter-spacing:1px;color:${GRIS_ETIQUETA};text-transform:uppercase">Sistema de Gestión Integrado</div>
+      </td></tr>
+      <tr><td style="padding:0 32px"><div style="border-top:1px solid #edf0f4"></div></td></tr>
+      <tr><td style="padding:22px 32px 4px;color:${GRIS_TEXTO};font-size:14.5px;line-height:1.6">${inner}</td></tr>
+      <tr><td style="padding:22px 32px 28px">
+        <div style="border-top:1px solid #edf0f4;padding-top:16px;font-size:11.5px;color:#9aa2b3;line-height:1.6">
+          Metalium SpA · Sistema de Solicitudes de Ingreso y Traslado de Personal.<br/>
+          Este es un correo automático -- no hace falta responderlo.
+        </div>
+      </td></tr>
+    </table>
+  </div>`;
 }
 function boton(appUrl: string, txt: string) {
   if (!appUrl) return '';
-  return `<p style="text-align:center;margin:24px 0">
-    <a href="${appUrl}" style="background:#0a2c5a;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:600">${txt}</a></p>`;
+  return `<div style="text-align:center;margin:24px 0 4px">
+    <a href="${appUrl}" style="display:inline-block;background:${AZUL};color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">${txt}</a>
+  </div>`;
 }
-function tipoTxt(t: string) { return t === 'traslado' ? 'traslado' : 'ingreso'; }
+/** Caja de datos clave (label -> valor), acento azul a la izquierda. */
+function infoCard(filas: [string, string | null | undefined][]) {
+  const tr = filas
+    .filter(([, v]) => v != null && v !== '')
+    .map(([k, v]) => `<tr>
+        <td style="padding:5px 0;color:${GRIS_ETIQUETA};font-size:12.5px;font-weight:700;white-space:nowrap;vertical-align:top">${k}</td>
+        <td style="padding:5px 0 5px 14px;color:${NAVY};font-size:13.5px;font-weight:600">${v}</td>
+      </tr>`)
+    .join('');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 6px;background:#f6f9fc;border-left:3px solid ${AZUL};border-radius:0 6px 6px 0">
+    <tr><td style="padding:14px 16px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${tr}</table>
+    </td></tr>
+  </table>`;
+}
+/** Pastilla de estado (aprobada / rechazada / etc.), en línea dentro de un párrafo. */
+function badge(texto: string, bg: string, fg: string) {
+  return `<span style="display:inline-block;background:${bg};color:${fg};padding:3px 11px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.2px">${texto}</span>`;
+}
+const VERDE_BG = '#e5f6ea', VERDE_FG = '#1a7f37';
+const ROJO_BG = '#fbe9e9', ROJO_FG = '#b91c1c';
 
 function correoPendiente(nombre: string, sol: any, appUrl: string) {
-  return shell(`<p>Hola ${nombre},</p>
-    <p>Tenés una solicitud de <strong>${tipoTxt(sol.tipo)}</strong> (<strong>${sol.codigo}</strong>)
-       pendiente de tu aprobación.</p>${boton(appUrl, 'Ir a la bandeja')}`);
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">Tienes una solicitud pendiente de tu aprobación.</p>
+    ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    ${boton(appUrl, 'Ir a la bandeja')}`);
 }
 function correoEstado(nombre: string, sol: any, appUrl: string) {
-  const color = sol.estado === 'aprobada' ? '#1a7f37' : '#b91c1c';
-  return shell(`<p>Hola ${nombre},</p>
-    <p>Tu solicitud de <strong>${tipoTxt(sol.tipo)}</strong> (<strong>${sol.codigo}</strong>) fue
-       <strong style="color:${color}">${sol.estado}</strong>.</p>${boton(appUrl, 'Ver mis solicitudes')}`);
+  const aprobada = sol.estado === 'aprobada';
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">Tu solicitud quedó ${badge(aprobada ? 'Aprobada' : 'Rechazada', aprobada ? VERDE_BG : ROJO_BG, aprobada ? VERDE_FG : ROJO_FG)}.</p>
+    ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    ${boton(appUrl, 'Ver mis solicitudes')}`);
 }
 function correoAprobada(nombre: string, sol: any, appUrl: string) {
-  return shell(`<p>Hola ${nombre},</p>
-    <p>La solicitud de <strong>${tipoTxt(sol.tipo)}</strong> (<strong>${sol.codigo}</strong>) quedó
-       <strong style="color:#1a7f37">aprobada</strong>.</p>
-    <p>Adjuntamos el <strong>comprobante en PDF</strong> con el detalle de lo aprobado.</p>${boton(appUrl, 'Ver en SSI-RRHH')}`);
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">La solicitud quedó ${badge('Aprobada', VERDE_BG, VERDE_FG)}. Adjuntamos el comprobante en PDF con el detalle de lo aprobado.</p>
+    ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    ${boton(appUrl, 'Ver en SSI-RRHH')}`);
+}
+function correoContratacionIniciada(nombre: string, contrat: any, sol: any, centro: any, appUrl: string) {
+  const CANAL_LABELS: Record<string, string> = { recomendacion: 'Recomendación', reclutamiento_seleccion: 'Reclutamiento y selección' };
+  const TIPO_TRAB_LABELS: Record<string, string> = { administrativo: 'Administrativo', operativo: 'Operativo' };
+  const cargo = sol.detalle?.cargo || '—';
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">RRHH inició una contratación en tu centro de costo. Puedes empezar la homologación SST a medida que se vaya subiendo la documentación.</p>
+    ${infoCard([
+      ['Candidato', contrat.nombre_candidato],
+      ['Cargo', cargo],
+      ['Centro de costo', centro?.nombre],
+      ['Canal', CANAL_LABELS[contrat.canal] ?? contrat.canal],
+      ['Tipo de trabajador', TIPO_TRAB_LABELS[contrat.tipo_trabajador] ?? contrat.tipo_trabajador],
+      ['Solicitud', sol.folio || sol.codigo],
+    ])}
+    ${boton(appUrl, 'Ir a Homologación SST')}`);
 }

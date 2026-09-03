@@ -10,7 +10,7 @@ import { Toast } from '../ui/toast.js';
 import { ROLE_LABELS } from '../config.js';
 import { escapeHtml } from '../ui/utils.js';
 
-const ROLES = ['solicitante', 'aprobador', 'rrhh', 'admin'];
+const ROLES = ['solicitante', 'supervisor', 'aprobador', 'rrhh', 'prevencionista', 'admin'];
 
 export async function renderUsuarios(container) {
   container.innerHTML = '<div class="view-loading">Cargando usuarios...</div>';

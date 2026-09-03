@@ -4,7 +4,38 @@
 
 import { supabase } from '../core/supabase.js';
 
-const SOL_FIELDS = 'id, codigo, tipo, estado, created_at, centro_origen_id, centro_destino_id, motivo, detalle, trabajador_id';
+const SOL_FIELDS = 'id, codigo, folio, tipo, estado, created_at, centro_origen_id, centro_destino_id, motivo, detalle, trabajador_id';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+/**
+ * Descarga el PDF que devuelve una Edge Function (comprobante-pdf / maestro-pdf)
+ * y dispara la descarga en el navegador. Se usa fetch() directo (no
+ * supabase.functions.invoke) porque la respuesta es binaria.
+ */
+async function descargarPdfDeFuncion(nombreFuncion, params, nombreArchivoPorDefecto) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${nombreFuncion}${qs}`, {
+    headers: {
+      Authorization: `Bearer ${session?.access_token || ''}`,
+      apikey: SUPABASE_ANON_KEY
+    }
+  });
+  if (!res.ok) {
+    let msg = `No se pudo generar el PDF (${res.status}).`;
+    try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* respuesta no era JSON */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const nombre = (res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1]) || nombreArchivoPorDefecto;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
 
 export const Data = {
   async centros() {
@@ -35,10 +66,26 @@ export const Data = {
   async todosTrabajadores() {
     const { data, error } = await supabase
       .from('trabajadores')
-      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo')
+      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido')
       .order('nombre');
     if (error) throw error;
     return data || [];
+  },
+
+  /** Un trabajador puntual, con todos sus campos (para el Perfil del trabajador) */
+  async trabajadorPorId(id) {
+    const { data, error } = await supabase
+      .from('trabajadores')
+      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido')
+      .eq('id', id).single();
+    if (error) throw error;
+    return data;
+  },
+
+  /** Edita un campo puntual del trabajador (ej. fecha_termino_contrato, contrato_indefinido) */
+  async actualizarTrabajador(id, patch) {
+    const { error } = await supabase.from('trabajadores').update(patch).eq('id', id);
+    if (error) throw error;
   },
 
   /** Upsert masivo por RUT (crea nuevos, actualiza existentes) */
@@ -49,6 +96,23 @@ export const Data = {
     if (error) throw error;
   },
 
+  /**
+   * Historial de solicitudes de un trabajador (traslado, aumento de sueldo,
+   * bono, cambio de cargo, renovación -- "anexos" del contrato; ingreso no
+   * aplica porque nunca trae trabajador_id todavía inexistente), con sus
+   * aprobaciones, para el Perfil del trabajador.
+   */
+  async solicitudesDeTrabajador(trabajadorId) {
+    const { data: sols, error } = await supabase
+      .from('solicitudes').select(SOL_FIELDS + ', solicitante_id')
+      .eq('trabajador_id', trabajadorId).order('created_at', { ascending: false });
+    if (error) throw error;
+    const aprs = await this.aprobacionesDe((sols || []).map(s => s.id));
+    const byId = new Map();
+    aprs.forEach(a => { if (!byId.has(a.solicitud_id)) byId.set(a.solicitud_id, []); byId.get(a.solicitud_id).push(a); });
+    return (sols || []).map(s => ({ ...s, aprobaciones: (byId.get(s.id) || []).sort((a, b) => a.orden - b.orden) }));
+  },
+
   async crearSolicitud({ tipo, trabajador_id, centro_origen_id, centro_destino_id, motivo, detalle }) {
     const { data, error } = await supabase.rpc('crear_solicitud', {
       p_tipo: tipo,
@@ -56,6 +120,21 @@ export const Data = {
       p_centro_origen_id: centro_origen_id,
       p_centro_destino_id: centro_destino_id || null,
       p_motivo: motivo || null,
+      p_detalle: detalle || {}
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data[0] : data;
+  },
+
+  /**
+   * Crea una solicitud de aumento de sueldo / bono / cambio de cargo / renovación
+   * (RPC crear_solicitud_cambio: resuelve el administrador de obra del centro del
+   * trabajador y crea su única aprobación).
+   */
+  async crearSolicitudCambio({ tipo, trabajador_id, detalle }) {
+    const { data, error } = await supabase.rpc('crear_solicitud_cambio', {
+      p_tipo: tipo,
+      p_trabajador_id: trabajador_id,
       p_detalle: detalle || {}
     });
     if (error) throw error;
@@ -170,19 +249,49 @@ export const Data = {
     }
   },
 
+  /**
+   * Avisa al prevencionista del centro de costo que RRHH inició una contratación,
+   * para que empiece la homologación SST. A diferencia de `notificar()`, esta SÍ se
+   * espera (await) porque el resultado (`skipped: true` si el centro no tiene
+   * prevencionista asignado) se usa para avisarle a RRHH en pantalla.
+   */
+  async notificarContratacion(contratacionId) {
+    try {
+      const { data, error } = await supabase.functions.invoke('Notificar', {
+        body: { type: 'contratacion_iniciada', contratacion_id: contratacionId }
+      });
+      if (error) { console.warn('[notificar] EF error:', error.message); return null; }
+      if (data?.error) console.warn('[notificar] devolvió:', data.error);
+      return data;
+    } catch (e) {
+      console.warn('[notificar] excepción:', e.message);
+      return null;
+    }
+  },
+
+  /** Descarga el comprobante en PDF (con el encabezado Metalium y Código/Folio) de una solicitud */
+  async descargarComprobantePdf(solicitudId) {
+    await descargarPdfDeFuncion('comprobante-pdf', { solicitud_id: solicitudId }, 'comprobante.pdf');
+  },
+
+  /** Descarga el "Maestro de solicitudes" en PDF (solo rrhh/admin, RLS/rol lo valida la Edge Function) */
+  async descargarMaestroPdf() {
+    await descargarPdfDeFuncion('maestro-pdf', null, 'Maestro_Solicitudes.pdf');
+  },
+
   // ---------- Gestión de centros de costo (admin) ----------
   async listCentrosAdmin() {
     const { data, error } = await supabase
       .from('centros_costo')
-      .select('id, codigo, nombre, admin_obra_id, activo')
+      .select('id, codigo, nombre, admin_obra_id, prevencionista_id, activo')
       .order('nombre');
     if (error) throw error;
     return data || [];
   },
 
-  async crearCentro({ codigo, nombre, admin_obra_id }) {
+  async crearCentro({ codigo, nombre, admin_obra_id, prevencionista_id }) {
     const { error } = await supabase
-      .from('centros_costo').insert({ codigo, nombre, admin_obra_id: admin_obra_id || null });
+      .from('centros_costo').insert({ codigo, nombre, admin_obra_id: admin_obra_id || null, prevencionista_id: prevencionista_id || null });
     if (error) throw error;
   },
 
@@ -215,5 +324,152 @@ export const Data = {
   async actualizarCargo(id, patch) {
     const { error } = await supabase.from('cargos').update(patch).eq('id', id);
     if (error) throw error;
+  },
+
+  // ---------- Contratación + SST (homologación) ----------
+
+  /** Una solicitud puntual, con sus aprobaciones (para la vista de detalle de contratación) */
+  async solicitudPorId(id) {
+    const { data, error } = await supabase
+      .from('solicitudes').select(SOL_FIELDS + ', solicitante_id').eq('id', id).single();
+    if (error) throw error;
+    return data;
+  },
+
+  /** Solicitudes de INGRESO ya aprobadas (universo desde el que se inicia contratación) */
+  async solicitudesIngresoAprobadas() {
+    const { data, error } = await supabase
+      .from('solicitudes')
+      .select(SOL_FIELDS + ', solicitante_id')
+      .eq('tipo', 'ingreso').eq('estado', 'aprobada')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  /** Catálogo de documentos activos, para armar el checklist de un tipo de trabajador */
+  async checklistDocumentos() {
+    const { data, error } = await supabase
+      .from('documentos_checklist').select('*').eq('activo', true).order('orden');
+    if (error) throw error;
+    return data || [];
+  },
+
+  /** Catálogo completo (incluye inactivos), para el panel admin */
+  async listChecklistAdmin() {
+    const { data, error } = await supabase
+      .from('documentos_checklist').select('*').order('orden');
+    if (error) throw error;
+    return data || [];
+  },
+
+  async crearChecklistItem(item) {
+    const { error } = await supabase.from('documentos_checklist').insert(item);
+    if (error) throw error;
+  },
+
+  async actualizarChecklistItem(id, patch) {
+    const { error } = await supabase.from('documentos_checklist').update(patch).eq('id', id);
+    if (error) throw error;
+  },
+
+  /** Todas las contrataciones (RLS: rrhh/admin ven todas, prevencionista también solo-lectura) */
+  async listContrataciones() {
+    const { data, error } = await supabase
+      .from('contrataciones').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  /** Mapa solicitud_id -> [contrataciones], solo para las solicitudes pedidas */
+  async contratacionesPorSolicitud(solIds) {
+    const u = [...new Set(solIds.filter(Boolean))];
+    if (!u.length) return new Map();
+    const { data, error } = await supabase
+      .from('contrataciones').select('*').in('solicitud_id', u).order('created_at');
+    if (error) throw error;
+    const map = new Map();
+    (data || []).forEach(c => { if (!map.has(c.solicitud_id)) map.set(c.solicitud_id, []); map.get(c.solicitud_id).push(c); });
+    return map;
+  },
+
+  async contratacionPorId(id) {
+    const { data, error } = await supabase.from('contrataciones').select('*').eq('id', id).single();
+    if (error) throw error;
+    return data;
+  },
+
+  /** Inicia el proceso de contratación de una persona para una solicitud de ingreso aprobada */
+  async iniciarContratacion(payload, userId) {
+    const { data, error } = await supabase.from('contrataciones').insert({
+      solicitud_id: payload.solicitud_id,
+      nombre_candidato: payload.nombre_candidato,
+      rut_candidato: payload.rut_candidato || null,
+      telefono_candidato: payload.telefono_candidato || null,
+      email_candidato: payload.email_candidato || null,
+      canal: payload.canal,
+      tipo_trabajador: payload.tipo_trabajador,
+      creada_por: userId
+    }).select('*').single();
+    if (error) throw error;
+    return data;
+  },
+
+  /** Edita canal / tipo de trabajador / datos del candidato mientras la contratación siga abierta */
+  async actualizarContratacion(id, patch) {
+    const { error } = await supabase.from('contrataciones').update(patch).eq('id', id);
+    if (error) throw error;
+  },
+
+  /** Marca la contratación como concluida: crea/actualiza el trabajador (por RUT) y lo vincula */
+  async marcarContratado(contratacionId, trabajadorPatch) {
+    let trabajadorId = null;
+    if (trabajadorPatch?.rut) {
+      const { data, error } = await supabase
+        .from('trabajadores').upsert(trabajadorPatch, { onConflict: 'rut' }).select('id').single();
+      if (error) throw error;
+      trabajadorId = data.id;
+    }
+    const { error: e2 } = await supabase.from('contrataciones')
+      .update({ trabajador_id: trabajadorId, estado: 'contratado', completada_at: new Date().toISOString() })
+      .eq('id', contratacionId);
+    if (e2) throw e2;
+    return trabajadorId;
+  },
+
+  async anularContratacion(id) {
+    const { error } = await supabase.from('contrataciones').update({ estado: 'anulada' }).eq('id', id);
+    if (error) throw error;
+  },
+
+  /** Documentos subidos de una contratación (RLS filtra homologación para prevencionista) */
+  async documentosDeContratacion(contratacionId) {
+    const { data, error } = await supabase
+      .from('documentos_contratacion').select('*').eq('contratacion_id', contratacionId).order('created_at');
+    if (error) throw error;
+    return data || [];
+  },
+
+  /** Sube un archivo al bucket 'contratacion-documentos' y registra/reemplaza su metadata */
+  async subirDocumentoContratacion(contratacionId, checklistItemId, file, userId) {
+    const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+    const path = `${contratacionId}/${checklistItemId}/${Date.now()}_${safeName}`;
+    const up = await supabase.storage.from('contratacion-documentos').upload(path, file, { upsert: false });
+    if (up.error) throw up.error;
+    const { data, error } = await supabase.from('documentos_contratacion')
+      .upsert({
+        contratacion_id: contratacionId, checklist_item_id: checklistItemId,
+        storage_path: path, nombre_archivo: file.name, tamano_bytes: file.size, subido_por: userId
+      }, { onConflict: 'contratacion_id,checklist_item_id' })
+      .select('id').single();
+    if (error) throw error;
+    return data.id;
+  },
+
+  async urlDocumentoContratacion(storagePath, expiresIn = 300) {
+    const { data, error } = await supabase.storage
+      .from('contratacion-documentos').createSignedUrl(storagePath, expiresIn);
+    if (error) throw error;
+    return data.signedUrl;
   }
 };

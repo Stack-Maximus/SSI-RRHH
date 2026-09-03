@@ -1,0 +1,83 @@
+/* ============================================================================
+   responsive.css — ajustes mobile transversales a los 5 módulos.
+   Va al FINAL de la cadena de imports (después de brand.css).
+
+   IMPORTANTE: los modales NO se tocan aquí — modal.css ya trae su propia
+   media query bien diseñada para eso.
+   ============================================================================ */
+
+/* ---------- Tablas: scroll horizontal en vez de aplastarse ----------
+   Sin :has() a propósito — ese selector no se soporta en todos los
+   navegadores/modos, y si la regla no aplica, la tabla se desborda sin
+   que nada la contenga. overflow-x: auto en TODA .card no hace daño en
+   las que no tienen tabla adentro. */
+@media (max-width: 900px) {
+  .card {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .data-table {
+    min-width: 640px;
+  }
+}
+
+/* ---------- Formularios de dos columnas → una sola columna ---------- */
+@media (max-width: 640px) {
+  .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Topbar: la campanita + refresh + user-chip no se apretujan ---------- */
+@media (max-width: 640px) {
+  .topbar-right {
+    gap: 6px;
+  }
+  .user-chip .user-info {
+    display: none;
+  }
+  .notif-dropdown {
+    width: min(320px, 92vw);
+    right: -8px;
+  }
+}
+
+/* ---------- Botonera de acciones dentro de tarjetas: no se desborda ---------- */
+@media (max-width: 640px) {
+  .card > div[style*="display:flex"],
+  .card > div[style*="display: flex"] {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- KPI grid: fuerza una sola columna en pantallas muy chicas ---------- */
+@media (max-width: 420px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Sticky footer de los formularios de evaluación (Personal/Proveedores) ---------- */
+@media (max-width: 640px) {
+  .eva-sticky-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .eva-sticky-footer .btn {
+    width: 100%;
+  }
+  .escala-selector {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- Pantallas públicas (encuesta / reportar falla) ---------- */
+@media (max-width: 480px) {
+  .encuesta-card {
+    padding: 20px 18px;
+  }
+  .nps-escala {
+    justify-content: center;
+  }
+}

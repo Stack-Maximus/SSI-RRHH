@@ -1,12 +1,17 @@
 /**
- * Vista "Nueva solicitud" · formularios reales de Ingreso y Traslado,
- * según el Excel de RRHH. Llama a crear_solicitud(); los campos propios
- * de cada tipo se guardan en `detalle` (JSONB).
+ * Vista "Nueva solicitud" · formularios de Ingreso, Traslado (rol solicitante)
+ * y Aumento de sueldo / Bono / Cambio de cargo / Renovación (rol supervisor,
+ * sobre trabajadores ya contratados). El segmento de tipos visibles depende
+ * del rol (TIPOS_SOLICITUD_POR_ROL en config.js). Ingreso/Traslado llaman a
+ * crear_solicitud(); los 4 tipos de cambio llaman a crear_solicitud_cambio()
+ * (aprueba solo el administrador de obra del centro del trabajador). Los
+ * campos propios de cada tipo se guardan en `detalle` (JSONB).
  */
 
 import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
+import { TIPOS_SOLICITUD_POR_ROL, TIPO_SOLICITUD_META } from '../config.js';
 
 let centros = [];
 let trabajadores = [];
@@ -14,6 +19,10 @@ let cargos = [];
 
 const TIPOS_CONTRATO = ['Plazo Fijo', 'Obra o Faena', 'Indefinido'];
 const TURNOS = ['Diurno', 'Nocturno'];
+const TIPOS_BONO = ['Bono Trato', 'Bono Nocturno', 'Bono Producción', 'Bono Responsabilidad', 'Otro'];
+
+// Tipos que se crean vía crear_solicitud_cambio() (sobre un trabajador ya contratado)
+const TIPOS_CAMBIO = ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion'];
 
 const num = (v) => (v === '' || v == null ? null : Number(v));
 const txt = (v) => (v && String(v).trim() ? String(v).trim() : null);
@@ -25,9 +34,24 @@ function optsCentros(sel) {
 }
 function optsContrato() { return TIPOS_CONTRATO.map(t => `<option>${t}</option>`).join(''); }
 function optsTurno()    { return TURNOS.map(t => `<option>${t}</option>`).join(''); }
+function optsBono()     { return TIPOS_BONO.map(t => `<option>${t}</option>`).join(''); }
 function optsCargos(sel) {
   return '<option value="">— Seleccionar cargo —</option>' +
     cargos.map(c => `<option ${c === sel ? 'selected' : ''}>${c}</option>`).join('');
+}
+function optsTrabajadores() {
+  return trabajadores.map(t =>
+    `<option value="${t.id}">${t.nombre}${t.cargo ? ' · ' + t.cargo : ''}</option>`
+  ).join('');
+}
+function selectTrabajador(id = 'trab-select') {
+  return `
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Trabajador <span class="req">*</span></label>
+      <select name="trabajador_id" id="${id}" required>
+        <option value="">— Seleccionar trabajador —</option>${optsTrabajadores()}
+      </select>
+    </div></div>`;
 }
 
 export async function renderNuevaSolicitud(container) {
@@ -47,21 +71,21 @@ export async function renderNuevaSolicitud(container) {
     return;
   }
 
+  const tiposVisibles = TIPOS_SOLICITUD_POR_ROL[state.user.role] || ['ingreso', 'traslado'];
+  const segmentos = tiposVisibles.map((t, i) => {
+    const m = TIPO_SOLICITUD_META[t];
+    return `<button type="button" class="segment-btn ${i === 0 ? 'active' : ''}" data-tipo="${t}">
+      <span class="segment-icon">${m.icon}</span><span>${m.label}</span>
+      <span class="segment-desc">${m.desc}</span>
+    </button>`;
+  }).join('');
+
   container.innerHTML = `
     <div class="view-form">
       <div class="form-card">
         <div class="form-section">
           <label class="form-label">Tipo de solicitud</label>
-          <div class="segment-control" id="tipo-control">
-            <button type="button" class="segment-btn active" data-tipo="ingreso">
-              <span class="segment-icon">➕</span><span>Ingreso</span>
-              <span class="segment-desc">Pedir personal nuevo a la obra</span>
-            </button>
-            <button type="button" class="segment-btn" data-tipo="traslado">
-              <span class="segment-icon">🔁</span><span>Traslado</span>
-              <span class="segment-desc">Mover a un trabajador entre obras</span>
-            </button>
-          </div>
+          <div class="segment-control" id="tipo-control">${segmentos}</div>
         </div>
         <form id="sol-form" autocomplete="off">
           <div id="form-body"></div>
@@ -75,7 +99,7 @@ export async function renderNuevaSolicitud(container) {
     </div>
   `;
 
-  let tipo = 'ingreso';
+  let tipo = tiposVisibles[0];
   renderBody(tipo);
 
   container.querySelectorAll('#tipo-control .segment-btn').forEach(btn => {
@@ -93,8 +117,19 @@ export async function renderNuevaSolicitud(container) {
 
 function renderBody(tipo) {
   const body = document.getElementById('form-body');
-  body.innerHTML = tipo === 'ingreso' ? bodyIngreso() : bodyTraslado();
+  const builders = {
+    ingreso: bodyIngreso,
+    traslado: bodyTraslado,
+    aumento_sueldo: bodyAumentoSueldo,
+    bono: bodyBono,
+    cambio_cargo: bodyCambioCargo,
+    renovacion: bodyRenovacion
+  };
+  body.innerHTML = (builders[tipo] || bodyIngreso)();
   if (tipo === 'traslado') wireTraslado();
+  if (tipo === 'aumento_sueldo') wireAumentoSueldo();
+  if (tipo === 'cambio_cargo') wireCambioCargo();
+  if (tipo === 'renovacion') wireRenovacion();
 }
 
 /* ---------------- INGRESO ---------------- */
@@ -138,16 +173,8 @@ function bodyIngreso() {
 
 /* ---------------- TRASLADO ---------------- */
 function bodyTraslado() {
-  const optsTrab = trabajadores.map(t =>
-    `<option value="${t.id}">${t.nombre}${t.cargo ? ' · ' + t.cargo : ''}</option>`
-  ).join('');
   return `
-    <div class="form-section"><div class="form-field">
-      <label class="form-label">Trabajador <span class="req">*</span></label>
-      <select name="trabajador_id" id="trab-select" required>
-        <option value="">— Seleccionar trabajador —</option>${optsTrab}
-      </select>
-    </div></div>
+    ${selectTrabajador('trab-select')}
     <div class="form-section"><div class="form-grid-2">
       <div class="form-field"><label class="form-label">Cargo</label>
         <select name="cargo" id="trab-cargo">${optsCargos('')}</select></div>
@@ -224,6 +251,115 @@ function wireTraslado() {
   toggle('chk-trato', 'fields-trato');
 }
 
+/* ---------------- AUMENTO DE SUELDO ---------------- */
+function bodyAumentoSueldo() {
+  return `
+    ${selectTrabajador('cam-trab')}
+    <div class="form-section"><div class="form-grid-2">
+      <div class="form-field"><label class="form-label">Sueldo líquido actual</label>
+        <input type="number" id="cam-sueldo-actual" disabled placeholder="Se completa al elegir el trabajador"></div>
+      <div class="form-field"><label class="form-label">Nuevo sueldo líquido <span class="req">*</span></label>
+        <input type="number" name="sueldo_nuevo" required min="0"></div>
+    </div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Fecha efectiva</label>
+      <input type="date" name="fecha_efectiva"></div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Motivo</label>
+      <textarea name="motivo" placeholder="Opcional"></textarea></div></div>
+  `;
+}
+function wireAumentoSueldo() {
+  document.getElementById('cam-trab').addEventListener('change', (e) => {
+    const t = trabajadores.find(x => x.id === e.target.value);
+    document.getElementById('cam-sueldo-actual').value = t?.sueldo_liquido ?? '';
+  });
+}
+
+/* ---------------- BONO ---------------- */
+function bodyBono() {
+  return `
+    ${selectTrabajador('bono-trab')}
+    <div class="form-section"><div class="form-grid-2">
+      <div class="form-field"><label class="form-label">Tipo de bono <span class="req">*</span></label>
+        <select name="tipo_bono" required>${optsBono()}</select></div>
+      <div class="form-field"><label class="form-label">Monto <span class="req">*</span></label>
+        <input type="number" name="monto" required min="0"></div>
+    </div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Período / fecha</label>
+      <input type="text" name="periodo" placeholder="Ej: octubre 2026 / pago único"></div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Motivo</label>
+      <textarea name="motivo" placeholder="Opcional"></textarea></div></div>
+  `;
+}
+
+/* ---------------- CAMBIO DE CARGO ---------------- */
+function bodyCambioCargo() {
+  return `
+    ${selectTrabajador('cc-trab')}
+    <div class="form-section"><div class="form-grid-2">
+      <div class="form-field"><label class="form-label">Cargo actual</label>
+        <input type="text" id="cc-cargo-actual" disabled placeholder="Se completa al elegir el trabajador"></div>
+      <div class="form-field"><label class="form-label">Cargo nuevo <span class="req">*</span></label>
+        <select name="cargo_nuevo" required>${optsCargos('')}</select></div>
+    </div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Fecha efectiva</label>
+      <input type="date" name="fecha_efectiva"></div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Motivo</label>
+      <textarea name="motivo" placeholder="Opcional"></textarea></div></div>
+  `;
+}
+function wireCambioCargo() {
+  document.getElementById('cc-trab').addEventListener('change', (e) => {
+    const t = trabajadores.find(x => x.id === e.target.value);
+    document.getElementById('cc-cargo-actual').value = t?.cargo ?? '';
+  });
+}
+
+/* ---------------- RENOVACIÓN ---------------- */
+function bodyRenovacion() {
+  return `
+    ${selectTrabajador('ren-trab')}
+    <div class="form-section"><div class="form-grid-2">
+      <div class="form-field"><label class="form-label">Tipo de contrato actual</label>
+        <select id="ren-contrato-actual" disabled>${optsContrato()}</select></div>
+      <div class="form-field"><label class="form-label">Fecha de término actual</label>
+        <input type="date" name="fecha_termino_actual"></div>
+    </div></div>
+    <div class="form-section">
+      <label class="bono-toggle"><input type="checkbox" id="ren-indefinido"> El contrato pasa a <strong>indefinido</strong> (sin fecha de término, se puede seguir renovando sin límite)</label>
+    </div>
+    <div class="form-section" id="ren-fechas-section"><div class="form-grid-2">
+      <div class="form-field"><label class="form-label">Nueva fecha de término</label>
+        <input type="date" name="nueva_fecha_termino"></div>
+      <div class="form-field"><label class="form-label">Nuevo plazo (si no hay fecha exacta)</label>
+        <input type="text" name="nuevo_plazo" placeholder="Ej: 3 meses más"></div>
+    </div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Motivo</label>
+      <textarea name="motivo" placeholder="Opcional"></textarea></div></div>
+  `;
+}
+function wireRenovacion() {
+  document.getElementById('ren-trab').addEventListener('change', () => {
+    // El maestro de trabajadores hoy no guarda tipo de contrato; queda como referencia editable.
+  });
+  const chk = document.getElementById('ren-indefinido');
+  const seccionFechas = document.getElementById('ren-fechas-section');
+  const form = document.getElementById('sol-form');
+  chk.addEventListener('change', () => {
+    seccionFechas.hidden = chk.checked;
+    if (chk.checked) {
+      form.nueva_fecha_termino.value = '';
+      form.nuevo_plazo.value = '';
+    }
+  });
+}
+
 /* ---------------- SUBMIT ---------------- */
 async function onSubmit(e, getTipo) {
   e.preventDefault();
@@ -233,16 +369,27 @@ async function onSubmit(e, getTipo) {
   const btn = document.getElementById('sol-submit');
   errorEl.hidden = true;
 
+  const BUILDERS = {
+    ingreso: buildIngreso,
+    traslado: buildTraslado,
+    aumento_sueldo: buildAumentoSueldo,
+    bono: buildBono,
+    cambio_cargo: buildCambioCargo,
+    renovacion: buildRenovacion
+  };
+
   let payload;
   try {
-    payload = (tipo === 'ingreso') ? buildIngreso(f) : buildTraslado(f);
+    payload = BUILDERS[tipo](f);
   } catch (msg) {
     errorEl.textContent = msg; errorEl.hidden = false; return;
   }
 
   btn.disabled = true; btn.textContent = 'Creando...';
   try {
-    const sol = await Data.crearSolicitud(payload);
+    const sol = TIPOS_CAMBIO.includes(tipo)
+      ? await Data.crearSolicitudCambio(payload)
+      : await Data.crearSolicitud(payload);
     if (sol?.id) Data.notificar('pendiente_aprobador', sol.id); // fire-and-forget
     Toast.success('Solicitud creada', `${sol?.codigo || ''} quedó pendiente de aprobación.`);
     window.Router.go('inicio');
@@ -307,5 +454,71 @@ function buildTraslado(f) {
     centro_destino_id: f.centro_destino.value,
     motivo: null,
     detalle
+  };
+}
+
+function buildAumentoSueldo(f) {
+  if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
+  if (!num(f.sueldo_nuevo.value)) throw 'Indica el nuevo sueldo líquido.';
+  const t = trabajadores.find(x => x.id === f.trabajador_id.value);
+  return {
+    tipo: 'aumento_sueldo',
+    trabajador_id: f.trabajador_id.value,
+    detalle: {
+      sueldo_actual: t?.sueldo_liquido ?? null,
+      sueldo_nuevo: num(f.sueldo_nuevo.value),
+      fecha_efectiva: f.fecha_efectiva.value || null,
+      motivo: txt(f.motivo.value)
+    }
+  };
+}
+
+function buildBono(f) {
+  if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
+  if (!num(f.monto.value)) throw 'Indica el monto del bono.';
+  return {
+    tipo: 'bono',
+    trabajador_id: f.trabajador_id.value,
+    detalle: {
+      tipo_bono: f.tipo_bono.value,
+      monto: num(f.monto.value),
+      periodo: txt(f.periodo.value),
+      motivo: txt(f.motivo.value)
+    }
+  };
+}
+
+function buildCambioCargo(f) {
+  if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
+  if (!f.cargo_nuevo.value) throw 'Selecciona el cargo nuevo.';
+  const t = trabajadores.find(x => x.id === f.trabajador_id.value);
+  return {
+    tipo: 'cambio_cargo',
+    trabajador_id: f.trabajador_id.value,
+    detalle: {
+      cargo_actual: t?.cargo ?? null,
+      cargo_nuevo: f.cargo_nuevo.value,
+      fecha_efectiva: f.fecha_efectiva.value || null,
+      motivo: txt(f.motivo.value)
+    }
+  };
+}
+
+function buildRenovacion(f) {
+  if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
+  const indefinido = document.getElementById('ren-indefinido').checked;
+  if (!indefinido && !f.nueva_fecha_termino.value && !txt(f.nuevo_plazo.value)) {
+    throw 'Indica la nueva fecha de término, el nuevo plazo, o marca que pasa a indefinido.';
+  }
+  return {
+    tipo: 'renovacion',
+    trabajador_id: f.trabajador_id.value,
+    detalle: {
+      fecha_termino_actual: f.fecha_termino_actual.value || null,
+      indefinido,
+      nueva_fecha_termino: indefinido ? null : (f.nueva_fecha_termino.value || null),
+      nuevo_plazo: indefinido ? null : txt(f.nuevo_plazo.value),
+      motivo: txt(f.motivo.value)
+    }
   };
 }

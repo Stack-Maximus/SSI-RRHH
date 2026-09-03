@@ -7,6 +7,7 @@ import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
 import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen } from '../ui/solicitud-format.js';
+import { renderComprobante } from './comprobante.js';
 
 export async function renderMisSolicitudes(container) {
   container.innerHTML = '<div class="view-loading">Cargando...</div>';
@@ -40,7 +41,7 @@ export async function renderMisSolicitudes(container) {
       `<div class="sol-step">Aprobador ${a.orden} ${decisionBadge(a.decision)}</div>`
     ).join('');
     return `
-      <div class="sol-card">
+      <div class="sol-card" data-sol="${s.id}">
         <div class="sol-card-top">
           <span class="sol-id">${s.codigo || '—'}</span>
           <span class="sol-tipo">${tipoLabel(s.tipo)}</span>
@@ -48,7 +49,10 @@ export async function renderMisSolicitudes(container) {
         </div>
         <div class="sol-resumen">${resumen(s, centrosMap, trabMap)}</div>
         <div class="sol-steps">${steps || '<span class="muted">Sin aprobadores asignados</span>'}</div>
-        <div class="sol-foot"><span class="muted">Creada el ${fechaCorta(s.created_at)}</span></div>
+        <div class="sol-foot">
+          <span class="muted">Creada el ${fechaCorta(s.created_at)}</span>
+          <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>
+        </div>
       </div>`;
   }).join('');
 
@@ -60,4 +64,7 @@ export async function renderMisSolicitudes(container) {
     <div class="sol-grid">${cards}</div>`;
 
   container.querySelector('#ir-nueva')?.addEventListener('click', () => window.Router.go('nueva-solicitud'));
+  container.querySelectorAll('[data-comprobante]').forEach(btn => {
+    btn.addEventListener('click', () => renderComprobante(container, btn.dataset.comprobante, 'mis-solicitudes'));
+  });
 }

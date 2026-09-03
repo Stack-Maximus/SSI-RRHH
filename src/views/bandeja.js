@@ -6,7 +6,8 @@
 import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
-import { tipoLabel, fechaCorta, pesos, resumen } from '../ui/solicitud-format.js';
+import { tipoLabel, fechaCorta, resumen, detalleHtml } from '../ui/solicitud-format.js';
+import { renderComprobante } from './comprobante.js';
 
 export async function renderBandeja(container) {
   container.innerHTML = '<div class="view-loading">Cargando bandeja...</div>';
@@ -35,10 +36,6 @@ export async function renderBandeja(container) {
 
   const cards = items.map(it => {
     const s = it.sol;
-    const d = s.detalle || {};
-    const extra = (s.tipo === 'ingreso')
-      ? `<div class="sol-detalle">${d.tipo_contrato || ''} · ${d.turno || ''} ${d.sueldo_liquido ? '· Líquido ' + pesos(d.sueldo_liquido) : ''}</div>`
-      : `<div class="sol-detalle">${d.nuevo_sueldo_liquido ? 'Nuevo sueldo ' + pesos(d.nuevo_sueldo_liquido) : ''} ${d.bono_nocturno?.aplica ? '· B. Nocturno' : ''} ${d.bono_trato?.aplica ? '· B. Trato' : ''}</div>`;
     return `
       <div class="sol-card" data-apr="${it.aprobacionId}" data-sol="${s.id}">
         <div class="sol-card-top">
@@ -47,10 +44,11 @@ export async function renderBandeja(container) {
           <span class="muted">Tu turno: aprobador ${it.orden}</span>
         </div>
         <div class="sol-resumen">${resumen(s, centrosMap, trabMap)}</div>
-        ${extra}
+        ${detalleHtml(s)}
         ${s.motivo ? `<div class="sol-motivo">"${s.motivo}"</div>` : ''}
         <div class="sol-foot">
           <span class="muted">Solicitada el ${fechaCorta(s.created_at)}</span>
+          <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>
           <div class="sol-acciones">
             <button class="btn btn-danger" data-act="rechazar">Rechazar</button>
             <button class="btn btn-primary" data-act="aprobar">Aprobar</button>
@@ -68,6 +66,9 @@ export async function renderBandeja(container) {
     const solId = card.dataset.sol;
     card.querySelector('[data-act="aprobar"]').addEventListener('click', () => decidir(aprId, solId, 'aprobado', container));
     card.querySelector('[data-act="rechazar"]').addEventListener('click', () => decidir(aprId, solId, 'rechazado', container));
+  });
+  container.querySelectorAll('[data-comprobante]').forEach(btn => {
+    btn.addEventListener('click', () => renderComprobante(container, btn.dataset.comprobante, 'bandeja'));
   });
 }
 

@@ -1,39 +1,99 @@
 /**
  * Constantes de la aplicación.
  * Los roles deben coincidir EXACTAMENTE con el ENUM user_role de la BD:
- *   'admin' | 'rrhh' | 'solicitante' | 'aprobador'
+ *   'admin' | 'rrhh' | 'solicitante' | 'aprobador' | 'prevencionista' | 'supervisor'
  *
  * Varias vistas todavía son placeholders; se construyen en los próximos sprints.
  */
 
 // Menú permitido por rol (claves de vista)
 export const ROLES = {
-  solicitante: { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
-  aprobador:   { menu: ['inicio', 'bandeja'] },
-  rrhh:        { menu: ['inicio', 'solicitudes', 'historial'] },
-  admin:       { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes', 'bandeja',
-                         'solicitudes', 'usuarios', 'centros-costo', 'cargos', 'trabajadores', 'kpis'] }
+  solicitante:    { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
+  supervisor:     { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
+  aprobador:      { menu: ['inicio', 'bandeja'] },
+  rrhh:           { menu: ['inicio', 'solicitudes', 'historial', 'contrataciones'] },
+  prevencionista: { menu: ['inicio', 'homologacion'] },
+  admin:          { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes', 'bandeja',
+                            'solicitudes', 'contrataciones', 'homologacion', 'checklist-documentos',
+                            'usuarios', 'centros-costo', 'cargos', 'trabajadores', 'kpis'] }
+};
+
+// Tipos de solicitud que puede crear cada rol desde "Nueva solicitud"
+// (mismo formulario para todos; el segmento de tipos varía según el rol)
+export const TIPOS_SOLICITUD_POR_ROL = {
+  solicitante: ['ingreso', 'traslado'],
+  supervisor:  ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion'],
+  admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion']
 };
 
 // Ícono + etiqueta de cada vista (para el sidebar)
 export const NAV_META = {
-  'inicio':          { icon: '\u{1F3E0}', label: 'Inicio' },
-  'nueva-solicitud': { icon: '\u{1F4DD}', label: 'Nueva solicitud' },
-  'mis-solicitudes': { icon: '\u{1F4C4}', label: 'Mis solicitudes' },
-  'bandeja':         { icon: '\u2705',     label: 'Bandeja' },
-  'solicitudes':     { icon: '\u{1F4CB}', label: 'Solicitudes' },
-  'historial':       { icon: '\u{1F5C2}\uFE0F', label: 'Historial' },
-  'usuarios':        { icon: '\u{1F465}', label: 'Usuarios' },
-  'centros-costo':   { icon: '\u{1F3D7}\uFE0F', label: 'Centros de costo' },
-  'cargos':          { icon: '\u{1F9F0}', label: 'Cargos' },
-  'trabajadores':    { icon: '\u{1F477}', label: 'Trabajadores' },
-  'kpis':            { icon: '\u{1F4CA}', label: 'Dashboard' }
+  'inicio':               { icon: '\u{1F3E0}', label: 'Inicio' },
+  'nueva-solicitud':      { icon: '\u{1F4DD}', label: 'Nueva solicitud' },
+  'mis-solicitudes':      { icon: '\u{1F4C4}', label: 'Mis solicitudes' },
+  'bandeja':              { icon: '✅',     label: 'Bandeja' },
+  'solicitudes':          { icon: '\u{1F4CB}', label: 'Solicitudes' },
+  'historial':            { icon: '\u{1F5C2}️', label: 'Historial' },
+  'contrataciones':       { icon: '\u{1F4BC}', label: 'Contratación' },
+  'homologacion':         { icon: '\u{1F9BA}', label: 'Homologación SST' },
+  'checklist-documentos': { icon: '\u{1F4C1}', label: 'Checklist documentos' },
+  'usuarios':             { icon: '\u{1F465}', label: 'Usuarios' },
+  'centros-costo':        { icon: '\u{1F3D7}️', label: 'Centros de costo' },
+  'cargos':               { icon: '\u{1F9F0}', label: 'Cargos' },
+  'trabajadores':         { icon: '\u{1F477}', label: 'Trabajadores' },
+  'kpis':                 { icon: '\u{1F4CA}', label: 'Dashboard' }
 };
 
 export const ROLE_LABELS = {
   admin: 'Administrador',
   rrhh: 'RRHH',
   solicitante: 'Solicitante',
-  aprobador: 'Aprobador'
+  aprobador: 'Aprobador',
+  prevencionista: 'Prevencionista',
+  supervisor: 'Supervisor'
 };
 
+// Etiquetas + ícono de cada tipo de solicitud (para segment-control, badges y listados)
+export const TIPO_SOLICITUD_META = {
+  ingreso:         { icon: '➕', label: 'Ingreso',            desc: 'Pedir personal nuevo a la obra' },
+  traslado:        { icon: '🔁', label: 'Traslado',           desc: 'Mover a un trabajador entre obras' },
+  aumento_sueldo:  { icon: '💰', label: 'Aumento de sueldo',  desc: 'Subir el sueldo líquido pactado' },
+  bono:            { icon: '🎁', label: 'Bono',               desc: 'Asignar un bono puntual o periódico' },
+  cambio_cargo:    { icon: '🔀', label: 'Cambio de cargo',    desc: 'Cambiar el cargo del trabajador' },
+  renovacion:      { icon: '⏳', label: 'Renovación',         desc: 'Renovar o extender el contrato' }
+};
+
+// Canal por el que se contrata a la persona (proceso de Contratación)
+export const CANAL_CONTRATACION_LABELS = {
+  recomendacion: 'Recomendación',
+  reclutamiento_seleccion: 'Reclutamiento y selección'
+};
+
+// Tipo de trabajador, define qué checklist de documentos aplica
+export const TIPO_TRABAJADOR_LABELS = {
+  administrativo: 'Administrativo',
+  operativo: 'Operativo'
+};
+
+export const ESTADO_CONTRATACION_LABELS = {
+  en_proceso: 'En proceso',
+  documentos_completos: 'Documentos completos',
+  contratado: 'Contratado',
+  anulada: 'Anulada'
+};
+
+// Codificación de documentos del Sistema de Gestión (formato Metalium):
+// "codigo" identifica el FORMULARIO/plantilla (fijo); "folioPrefijo" es el
+// prefijo del correlativo de cada comprobante emitido (el número lo asigna
+// la base de datos, ver migración 0010_folio_documentos.sql).
+export const DOCUMENTO_CODIGOS = {
+  ingreso:         { codigo: 'RRH-FOR-CON-006', folioPrefijo: 'RRH-ING-' },
+  traslado:        { codigo: 'RRH-FOR-TRA-002', folioPrefijo: 'RRH-TRA-' },
+  aumento_sueldo:  { codigo: 'RRH-FOR-VAR-001', folioPrefijo: 'RRH-VAR-' },
+  bono:            { codigo: 'RRH-FOR-VAR-002', folioPrefijo: 'RRH-BON-' },
+  cambio_cargo:    { codigo: 'RRH-FOR-VAR-003', folioPrefijo: 'RRH-CAR-' },
+  renovacion:      { codigo: 'RRH-FOR-CON-007', folioPrefijo: 'RRH-REN-' }
+};
+
+// Maestro de solicitudes (exportable a Excel): código del formulario, sin folio propio.
+export const MAESTRO_SOLICITUDES_CODIGO = 'RRH-FOR-SOL-001';

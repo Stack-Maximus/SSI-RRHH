@@ -7,6 +7,7 @@
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
+import { TIPO_SOLICITUD_META } from '../config.js';
 
 const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
 
@@ -53,7 +54,7 @@ export async function renderDashboard(container) {
   // --- agregados ---
   const total = sols.length;
   const porEstado = { pendiente: 0, aprobada: 0, rechazada: 0 };
-  const porTipo = { ingreso: 0, traslado: 0 };
+  const porTipo = {};
   const porCentro = new Map();
   sols.forEach(s => {
     porEstado[s.estado] = (porEstado[s.estado] || 0) + 1;
@@ -97,7 +98,7 @@ export async function renderDashboard(container) {
     <div class="dash-cols">
       <div class="card">
         <h3>Por tipo</h3>
-        ${barras([{ label: 'Ingreso', value: porTipo.ingreso || 0 }, { label: 'Traslado', value: porTipo.traslado || 0 }])}
+        ${barras(Object.keys(porTipo).map(t => ({ label: TIPO_SOLICITUD_META[t]?.label || t, value: porTipo[t] })))}
       </div>
       <div class="card">
         <h3>Volumen por centro (top)</h3>

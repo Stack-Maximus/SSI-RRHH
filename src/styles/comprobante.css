@@ -1,0 +1,84 @@
+/* Comprobante (recibo imprimible / PDF) de una solicitud */
+
+.comprobante {
+  max-width: 820px;
+  margin: 0 auto;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e2e2e2);
+  border-radius: 10px;
+  padding: 28px 32px;
+}
+
+.comprobante-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--border, #e2e2e2);
+}
+
+/* Encabezado corporativo "Sistema de Gestión Integrado": réplica en pantalla,
+ * vía SVG, del mismo dibujo vectorial que arma el PDF real -- ver
+ * src/ui/encabezado-svg.js y, como fuente de verdad,
+ * supabase/functions/_shared/pdf-encabezado.ts (misma geometría/colores). */
+.comprobante-encabezado {
+  margin: 0 0 18px;
+  line-height: 0;
+}
+.eh-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.eh-svg text {
+  font-family: 'Poppins', Arial, Helvetica, sans-serif;
+}
+
+.comprobante-top {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 14px;
+  background: var(--bg-subtle, #f7f7f8);
+  border-radius: 8px;
+}
+.comprobante .card { margin-bottom: 16px; }
+.comprobante .card:last-of-type { margin-bottom: 0; }
+
+.comprobante-foot {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border, #e2e2e2);
+  font-size: 0.82rem;
+  color: var(--text-muted, #777);
+  text-align: center;
+}
+
+/* ---------------- Impresión: solo el comprobante ---------------- */
+@media print {
+  #sidebar, #topbar, #sidebar-overlay, .no-print {
+    display: none !important;
+  }
+  #app-shell {
+    display: block !important;
+  }
+  #content {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .comprobante {
+    max-width: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+  }
+  .card {
+    break-inside: avoid;
+  }
+  body {
+    background: #fff !important;
+  }
+}

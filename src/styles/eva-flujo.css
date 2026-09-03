@@ -1,0 +1,1527 @@
+/* ============================================================================
+   Flujo de cierre de la Evaluación de Personal: línea de tiempo del evaluado,
+   recomendador de planes de acción y panel de Crecimiento y Bienestar.
+   ============================================================================ */
+
+.view-eva {
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+.eva-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* --- Línea de tiempo del cierre ------------------------------------------- */
+
+.eva-stepper {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.eva-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.eva-step-marca {
+  width: 21px;
+  height: 21px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text-m);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.eva-step-texto { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.eva-step-texto strong { font-size: 12px; line-height: 1.3; color: var(--text-m); font-weight: 600; }
+.eva-step-texto em { font-size: 10.5px; font-style: normal; color: var(--text-s); }
+
+.eva-step.is-hecho { background: var(--success-bg); border-color: #bbf7d0; }
+.eva-step.is-hecho .eva-step-marca { background: #16a34a; color: #fff; }
+.eva-step.is-hecho .eva-step-texto strong { color: #14532d; }
+
+.eva-step.is-actual { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-100); }
+.eva-step.is-actual .eva-step-marca { background: var(--accent); color: #fff; }
+.eva-step.is-actual .eva-step-texto strong { color: var(--text); }
+
+/* --- Totales y lectura de la brecha -------------------------------------- */
+
+.eva-totales {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin: 16px 0 4px;
+}
+
+.eva-total {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.eva-total-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--text-s);
+  font-weight: 600;
+}
+
+.eva-total-valor {
+  font-family: var(--font-b);
+  font-size: 25px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+.eva-total-valor.is-secundario { color: var(--text-m); font-weight: 600; }
+
+/* La lectura de la brecha lleva SIEMPRE el texto: el color solo lo refuerza. */
+.eva-lectura { font-size: 12px; }
+.eva-lectura.is-ok { color: #15803d; }
+.eva-lectura.is-atencion { color: #a16207; }
+.eva-lectura.is-alerta { color: #b91c1c; font-weight: 600; }
+
+/* --- Bloques de etapa ---------------------------------------------------- */
+
+.eva-accion { border-left: 3px solid var(--accent); }
+.eva-espera { border-left: 3px solid var(--border-s); background: var(--surface-2); }
+
+.eva-reunion { margin-top: 8px; }
+
+.eva-respuesta { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.eva-respuesta:last-child { border-bottom: none; }
+.eva-respuesta-label {
+  display: block;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--text-s);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.eva-respuesta p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text); white-space: pre-wrap; }
+
+.eva-nota-cierre {
+  padding: 12px 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.eva-nota-cierre.is-ok { border-color: #bbf7d0; background: var(--success-bg); }
+.eva-nota-cierre.is-atencion { border-color: #fde68a; background: var(--warning-bg); }
+.eva-nota-cierre.is-alerta { border-color: #fecaca; background: var(--danger-bg); }
+
+/* --- Recomendador de planes de acción ------------------------------------ */
+
+.eva-contador {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-m);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+.eva-contador.is-alerta { color: #b91c1c; border-color: #fecaca; background: var(--danger-bg); }
+
+.plan-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  margin-top: 14px;
+  background: var(--surface);
+  transition: border-color var(--t), box-shadow var(--t);
+}
+.plan-card.is-prioritaria { border-left: 3px solid var(--warning); }
+.plan-card.is-sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-100); }
+.plan-card.is-ya { opacity: .6; }
+.plan-card.is-propia { border-style: dashed; }
+
+.plan-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+.plan-check input[type="checkbox"] { width: auto; margin: 3px 0 0; flex-shrink: 0; }
+
+.plan-titulo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  line-height: 1.35;
+}
+
+.plan-cuerpo { padding-top: 6px; }
+.plan-cuerpo .form-field { margin-bottom: 10px; }
+.plan-cuerpo .form-label { font-size: 10.5px; }
+
+/* --- Panel de Crecimiento y Bienestar ------------------------------------ */
+
+.bienestar-head { margin-bottom: 20px; }
+.bienestar-head h3 { margin-bottom: 4px; }
+.bienestar-head .hint { max-width: 74ch; line-height: 1.5; }
+
+/* Medidor: pista en un tono más claro del mismo azul del relleno. */
+.bienestar-medidor {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-100);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.bienestar-medidor-relleno {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--t);
+}
+
+.bienestar-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.bienestar-filtro {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-m);
+  cursor: pointer;
+  transition: all var(--t);
+}
+.bienestar-filtro span {
+  font-weight: 700;
+  color: var(--text);
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.bienestar-filtro:hover { border-color: var(--border-s); }
+.bienestar-filtro.is-activo { background: var(--primary); border-color: var(--primary); color: #fff; }
+.bienestar-filtro.is-activo span { color: #fff; }
+
+.bienestar-accion {
+  max-width: 320px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-m);
+}
+
+.bienestar-contexto {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.bienestar-contexto p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.5; }
+
+.bienestar-control-previo {
+  border-left: 3px solid var(--success);
+  padding: 8px 0 8px 12px;
+  margin-top: 10px;
+}
+.bienestar-control-previo p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-m); }
+
+@media (max-width: 640px) {
+  .eva-stepper { grid-template-columns: 1fr; }
+  .bienestar-accion { max-width: 220px; }
+}
+
+/* --- Checklist de la entrevista (Hoja 10) --------------------------------- */
+
+.checklist { margin-top: 8px; }
+
+.checklist-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.checklist-head h4 { margin: 0 0 2px; font-size: 13px; }
+.checklist-head .hint { margin: 0; }
+
+.checklist-contador {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-m);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 11px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.checklist-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.checklist-item:last-of-type { border-bottom: none; }
+.checklist-item.is-no { background: var(--danger-bg); border-radius: var(--r-sm); padding: 10px 10px; }
+
+.checklist-codigo {
+  flex-shrink: 0;
+  /* Los códigos de la pauta v2.0 son «V2-C1», no «C1»: con 30px se partían en
+     dos líneas y descuadraban la fila. */
+  width: 46px;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-s);
+  padding-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.checklist-cuerpo { flex: 1; min-width: 0; }
+.checklist-texto { margin: 0 0 7px; font-size: 12.5px; line-height: 1.45; color: var(--text); }
+
+.checklist-opciones { display: flex; gap: 6px; margin-bottom: 7px; }
+
+.checklist-opcion {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-m);
+  background: var(--surface);
+  transition: all var(--t);
+  user-select: none;
+}
+.checklist-opcion input { position: absolute; opacity: 0; width: 0; height: 0; }
+.checklist-opcion:hover { border-color: var(--border-s); }
+.checklist-opcion:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.checklist-opcion.is-sel.is-si { background: #16a34a; border-color: #16a34a; color: #fff; }
+.checklist-opcion.is-sel.is-no { background: #dc2626; border-color: #dc2626; color: #fff; }
+.checklist-opcion.is-sel.is-na { background: var(--neutral); border-color: var(--neutral); color: #fff; }
+
+.checklist-obs {
+  width: 100%;
+  font-size: 12px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.checklist-resumen { margin-top: 4px; }
+
+.checklist-resumen-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  margin-bottom: 12px;
+}
+.checklist-resumen-total strong { font-family: var(--font-b); font-size: 24px; line-height: 1.1; }
+
+.checklist-resumen-bloques {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.checklist-resumen-bloque {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+.checklist-resumen-bloque strong { font-family: var(--font-b); font-size: 17px; }
+
+/* --- Acta de cierre (Hoja 7) --------------------------------------------- */
+
+.acta-card { border-top: 3px solid var(--primary); }
+
+.acta-declaracion {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--r);
+  padding: 13px 15px;
+  margin: 10px 0 14px;
+}
+.acta-declaracion p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text); }
+
+.acta-declaracion-texto {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-m);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  margin: 6px 0 0;
+}
+
+.acta-firmas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.acta-firma {
+  border: 1px dashed var(--border-s);
+  border-radius: var(--r);
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.acta-firma.is-firmada { border-style: solid; border-color: #bbf7d0; background: var(--success-bg); }
+
+.acta-firma-rol {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--text-s);
+  font-weight: 700;
+}
+.acta-firma-nombre { font-family: var(--font-b); font-size: 15px; font-weight: 700; color: var(--text); }
+.acta-firma-rut { font-size: 12px; color: var(--text-m); font-variant-numeric: tabular-nums; }
+.acta-firma-fecha { font-size: 11.5px; color: var(--text-m); }
+.acta-firma-pendiente { font-size: 13px; color: var(--text-s); font-style: italic; padding-top: 4px; }
+
+/* --- Tarjeta por persona en el panel de Bienestar ------------------------- */
+
+.persona-card { margin-bottom: 18px; }
+
+.persona-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.persona-ident { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.persona-nombre { margin: 0 0 2px; font-size: 16px; line-height: 1.25; }
+.persona-meta { margin: 0; font-size: 12px; color: var(--text-m); line-height: 1.45; }
+
+.persona-estado {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.persona-avance { min-width: 168px; text-align: right; }
+.persona-avance .bienestar-medidor { margin-bottom: 4px; }
+
+/* Lista de acciones: cada una es un bloque, no una fila de tabla, así el texto
+   de la acción tiene el ancho completo y no se estrangula en una columna. */
+.accion-lista { list-style: none; margin: 0; padding: 0; }
+
+.accion-item {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.accion-item:last-child { border-bottom: none; padding-bottom: 0; }
+.accion-item.is-vencida { border-left: 3px solid var(--danger); padding-left: 12px; }
+.accion-item.is-completada { opacity: .72; }
+
+.accion-cabeza {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+.accion-dim {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 700;
+  color: var(--text-s);
+}
+
+.accion-texto {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  max-width: 78ch;
+}
+
+.accion-pie {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.accion-dato {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.accion-dato-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-s);
+  font-weight: 600;
+}
+
+.accion-seg { font-size: 12px; }
+.accion-seg.is-pendiente { color: #b45309; font-weight: 600; }
+.accion-seg.is-parcial { color: var(--text-m); }
+.accion-seg.is-completo { color: #15803d; }
+
+.accion-pie .btn { margin-left: auto; }
+
+/* Acentos de los KPI, siempre con el texto explicando — el color no va solo. */
+.ficha-kpi.is-alerta .ficha-kpi-valor { color: #b91c1c; }
+.ficha-kpi.is-atencion .ficha-kpi-valor { color: #a16207; }
+
+@media (max-width: 720px) {
+  .persona-estado { align-items: flex-start; }
+  .persona-avance { text-align: left; min-width: 100%; }
+  .accion-pie { gap: 14px; }
+  .accion-pie .btn { margin-left: 0; width: 100%; }
+}
+
+/* --- Editor de la carta al proveedor -------------------------------------- */
+
+.carta-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.carta-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-m);
+  cursor: pointer;
+  transition: all var(--t);
+}
+.carta-btn:hover { border-color: var(--border-s); color: var(--text); }
+.carta-btn:active { background: var(--surface-2); }
+
+/* El editor ES la vista previa: lo que se ve acá es lo que recibe el proveedor. */
+.carta-editor {
+  border: 1px solid var(--border-s);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 18px 20px;
+  min-height: 260px;
+  max-height: 520px;
+  overflow-y: auto;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.carta-editor:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.carta-editor p { margin: 0 0 12px; }
+.carta-editor p:last-child { margin-bottom: 0; }
+.carta-editor table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12.5px; }
+.carta-editor ul, .carta-editor ol { margin: 0 0 12px; padding-left: 22px; }
+.carta-editor li { margin-bottom: 4px; }
+
+.carta-enviada {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 18px;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.carta-enviada p { margin: 0 0 10px; }
+.carta-enviada table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
+
+/* ===========================================================================
+   Motor de PDI · propuesta por prioridad
+   ---------------------------------------------------------------------------
+   La jerarquía la lleva la forma, no el color: cada grupo entra con una barra
+   izquierda de distinto grosor y una sigla en un chip. El color acompaña, pero
+   ninguna prioridad se distingue sólo por color — la sigla P1/P2/P3/P4 está
+   siempre escrita.
+   =========================================================================== */
+
+.motor-grupo {
+  margin: 18px 0 0;
+  padding: 12px 0 2px 14px;
+  border-left: 3px solid var(--border-s);
+}
+.motor-grupo.is-p1 { border-left-width: 5px; border-left-color: var(--danger); }
+.motor-grupo.is-p2 { border-left-width: 4px; border-left-color: var(--warning); }
+.motor-grupo.is-p3 { border-left-width: 3px; border-left-color: var(--accent); }
+.motor-grupo.is-p4 { border-left-width: 2px; border-left-color: var(--neutral); }
+.motor-grupo.is-filtrado { border-left-style: dashed; }
+
+.motor-grupo.is-vacio {
+  padding-bottom: 0;
+  opacity: .55;
+}
+.motor-grupo.is-vacio .motor-grupo-head { margin-bottom: 0; }
+
+.motor-grupo-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.motor-sigla {
+  flex-shrink: 0;
+  min-width: 30px;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  background: var(--neutral-bg);
+  color: var(--text-m);
+  font-family: var(--font-d);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-align: center;
+}
+.is-p1 > .motor-grupo-head .motor-sigla { background: var(--danger-bg); color: #991b1b; }
+.is-p2 > .motor-grupo-head .motor-sigla { background: var(--warning-bg); color: #92400e; }
+.is-p3 > .motor-grupo-head .motor-sigla { background: var(--accent-100); color: var(--accent-700); }
+
+.motor-grupo-nombre {
+  font-family: var(--font-d);
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.motor-grupo-conteo {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-s);
+  font-variant-numeric: tabular-nums;
+}
+.motor-grupo-glosa {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-m);
+  max-width: 68ch;
+}
+
+/* details/summary: el triángulo nativo desalinea el flex, se reemplaza */
+.motor-plegable > summary { cursor: pointer; list-style: none; }
+.motor-plegable > summary::-webkit-details-marker { display: none; }
+.motor-plegable > summary::after {
+  content: "▸";
+  order: -1;
+  margin-right: -4px;
+  color: var(--text-s);
+  font-size: 11px;
+}
+.motor-plegable[open] > summary::after { content: "▾"; }
+
+.motor-aviso-legal {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 11px;
+  border-radius: var(--r-sm);
+  background: var(--danger-bg);
+  color: #7f1d1d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.motor-aviso-icono {
+  flex-shrink: 0;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* --- una línea de la propuesta ------------------------------------------- */
+
+.motor-linea {
+  margin-bottom: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.motor-linea.is-sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-100); }
+.motor-linea.is-ya { opacity: .6; }
+.motor-linea.is-propia { border-style: dashed; }
+.motor-linea.is-conducta { background: var(--surface); }
+.motor-linea.is-obligatoria:not(.is-sel):not(.is-ya) {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.motor-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  cursor: pointer;
+}
+.motor-check input[type="checkbox"] { width: auto; margin: 3px 0 0; flex-shrink: 0; }
+
+.motor-linea-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--font-d);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+}
+.motor-cod {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  font-variant-numeric: tabular-nums;
+}
+.motor-nombre { flex: 1 1 auto; min-width: 0; }
+
+.motor-reco {
+  margin: 6px 0 0 25px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-m);
+}
+.motor-linea.is-conducta .motor-reco { margin-left: 0; }
+.motor-plazo {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--text-s);
+}
+
+.motor-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 7px 0 0 25px;
+  font-size: 11px;
+  color: var(--text-s);
+}
+.motor-meta span { white-space: nowrap; }
+.motor-meta strong { color: var(--text-m); }
+
+.motor-linea-cuerpo { padding: 10px 0 0 25px; }
+.motor-linea.is-propia .motor-linea-cuerpo,
+.motor-linea.is-conducta .motor-linea-cuerpo { padding-left: 0; }
+.motor-linea-cuerpo .form-field { margin-bottom: 10px; }
+.motor-linea-cuerpo .form-label { font-size: 10.5px; }
+
+.motor-descarte {
+  margin: 8px 0 0 25px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px dashed var(--danger);
+}
+.motor-descarte .form-label { font-size: 10.5px; margin-bottom: 4px; }
+
+.motor-nota-menor {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--neutral-bg);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-m);
+}
+.motor-nota-menor ul { margin: 6px 0 0; padding-left: 18px; }
+.motor-nota-menor li { margin-bottom: 3px; }
+
+/* --- resumen para el Comité ---------------------------------------------- */
+
+.motor-resumen-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+}
+.motor-kpi {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.motor-kpi.is-alerta { border-color: var(--danger); background: var(--danger-bg); }
+.motor-kpi.is-atencion { border-color: var(--warning); background: var(--warning-bg); }
+.motor-kpi-label {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-s);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.motor-kpi-valor {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--font-d);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .motor-grupo { padding-left: 10px; }
+  .motor-reco, .motor-meta, .motor-linea-cuerpo, .motor-descarte { margin-left: 0; padding-left: 0; }
+  .motor-meta span { white-space: normal; }
+  .motor-grupo-conteo { margin-left: 0; flex-basis: 100%; }
+}
+
+.motor-aviso-largo {
+  margin: 0 0 4px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-bg);
+  color: #78350f;
+  font-size: 12px;
+  line-height: 1.55;
+  max-width: 78ch;
+}
+
+/* --- ítems obligatorios del checklist (pauta v2.0) ------------------------ */
+
+.checklist-nota-oblig {
+  margin: 0 0 12px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-m);
+}
+
+.checklist-marca-oblig {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--danger);
+  background: var(--danger-bg);
+  color: #991b1b;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.checklist-item.is-oblig-pendiente { border-left: 3px solid var(--danger); }
+
+.checklist-oblig {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 10px 13px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.checklist-oblig.is-ok { border-color: var(--success); background: var(--success-bg); }
+.checklist-oblig.is-falta { border-color: var(--danger); background: var(--danger-bg); }
+.checklist-oblig strong { display: block; font-family: var(--font-d); font-size: 14px; }
+.checklist-oblig .hint { display: block; margin-top: 2px; font-size: 11.5px; line-height: 1.5; }
+.checklist-oblig-icono {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+.checklist-oblig.is-ok .checklist-oblig-icono { background: var(--success); }
+.checklist-oblig.is-falta .checklist-oblig-icono { background: var(--danger); }
+
+/* ===========================================================================
+   Lectura por SECCIÓN
+   ---------------------------------------------------------------------------
+   Cinco secciones, cinco tramos. El tramo se distingue por FORMA (■ ▲ ✔ ★) y
+   por la sigla escrita, nunca sólo por color: el color acompaña.
+   =========================================================================== */
+
+.motor-nota-decide {
+  margin-top: 16px;
+  padding: 11px 14px;
+  border-radius: var(--r);
+  border-left: 3px solid var(--accent);
+  background: var(--accent-100);
+  color: #073b52;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.seccion-card { padding-left: 0; border-left: 4px solid var(--border-s); }
+.seccion-card.is-nc { border-left-color: var(--danger); }
+.seccion-card.is-pd { border-left-color: var(--warning); }
+.seccion-card.is-c  { border-left-color: var(--accent); }
+.seccion-card.is-se { border-left-color: var(--success); }
+.seccion-card.is-ex { border-left-color: var(--primary); }
+.seccion-card.is-bateria { border-left-color: var(--accent); border-left-style: double; }
+.seccion-card.is-filtrado { border-left-style: dashed; }
+
+.seccion-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+details.seccion-card > summary.seccion-head { cursor: pointer; list-style: none; margin-bottom: 0; }
+details.seccion-card > summary::-webkit-details-marker { display: none; }
+details.seccion-card[open] > summary.seccion-head { margin-bottom: 10px; }
+
+.seccion-titulo { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; min-width: 0; }
+.seccion-titulo h3 { margin: 0; }
+
+.seccion-cod {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  background: var(--primary);
+  color: #fff;
+  font-family: var(--font-d);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.seccion-peso { font-size: 11.5px; color: var(--text-s); }
+
+.seccion-nota { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.seccion-nota-valor {
+  font-family: var(--font-d);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.tramo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-s);
+  background: var(--neutral-bg);
+  color: var(--text-m);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tramo-chip.is-nc { border-color: var(--danger);  background: var(--danger-bg);  color: #991b1b; }
+.tramo-chip.is-pd { border-color: var(--warning); background: var(--warning-bg); color: #92400e; }
+.tramo-chip.is-c  { border-color: var(--accent);  background: var(--accent-100); color: var(--accent-700); }
+.tramo-chip.is-se { border-color: var(--success); background: var(--success-bg); color: #166534; }
+.tramo-chip.is-ex { border-color: var(--primary); background: #e8ecf7;           color: var(--primary); }
+.tramo-forma { font-size: 10px; line-height: 1; }
+
+.tramo-celda { white-space: nowrap; font-weight: 600; }
+.tramo-celda.is-nc { color: #991b1b; }
+.tramo-celda.is-pd { color: #92400e; }
+.tramo-celda.is-c  { color: var(--accent-700); }
+.tramo-celda.is-se { color: #166534; }
+.tramo-celda.is-ex { color: var(--primary); }
+
+.seccion-recomendacion {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  max-width: 78ch;
+}
+
+.seccion-regla { margin: 0 0 10px; }
+.seccion-regla > summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent-700);
+}
+.seccion-regla > p {
+  margin: 7px 0 0;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-m);
+}
+.seccion-regla-filtro { margin-top: 6px !important; }
+
+.seccion-advertencia {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  background: var(--neutral-bg);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-m);
+}
+.seccion-advertencia.is-fuerte {
+  background: var(--warning-bg);
+  color: #78350f;
+}
+
+.seccion-nota-filtro {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  border-left: 3px solid var(--accent);
+  background: var(--accent-100);
+  color: #073b52;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.seccion-sin-lineas {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-s);
+  font-size: 12.5px;
+}
+
+.motor-grupo.is-conducta { border-left-width: 4px; border-left-color: var(--neutral); }
+.is-conducta > .motor-grupo-head .motor-sigla { background: var(--neutral-bg); color: var(--text-m); }
+
+.motor-fuera-tramo {
+  margin: 6px 0 0 25px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--accent-100);
+  color: #073b52;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* La línea que la regla marca como no postergable, si se desmarca */
+.motor-linea.is-pide-motivo:not(.is-sel):not(.is-ya) {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+}
+
+@media (max-width: 640px) {
+  .seccion-nota { margin-left: 0; }
+  .seccion-nota-valor { font-size: 22px; }
+  .motor-fuera-tramo { margin-left: 0; }
+}
+
+.propuesta-banda {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 26px 0 4px;
+  padding: 0 4px;
+}
+.propuesta-banda h4 {
+  margin: 0 0 2px;
+  font-family: var(--font-d);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.propuesta-banda p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-m);
+  max-width: 72ch;
+}
+.motor-aviso-largo { margin: 8px 4px 0; }
+
+/* Los bloques plegables de sección necesitan la señal de que se abren */
+details.seccion-card > summary.seccion-head::before {
+  content: "▸";
+  align-self: center;
+  margin-right: 2px;
+  color: var(--text-s);
+  font-size: 11px;
+}
+details.seccion-card[open] > summary.seccion-head::before { content: "▾"; }
+
+/* ===========================================================================
+   Fortalezas · el otro lado del motor
+   ---------------------------------------------------------------------------
+   Se distinguen por forma (★ y ✔) y por su propio código de bloque, no sólo
+   por color. Deliberadamente NO usan verde saturado: un reconocimiento no es
+   un «check de tarea completada», es una propuesta que alguien todavía tiene
+   que resolver.
+   =========================================================================== */
+
+.fortaleza-card { border-left: 4px solid var(--primary); }
+.fortaleza-card.is-reconocer { border-left-color: var(--success); border-left-style: dashed; }
+
+.seccion-cod.is-fort { background: var(--accent-700); }
+
+.motor-sigla.is-fort { background: #e8ecf7; color: var(--primary); }
+
+.motor-grupo.is-fortaleza-grupo {
+  border-left-width: 3px;
+  border-left-color: var(--primary);
+  border-left-style: double;
+}
+
+.motor-linea.is-fortaleza,
+.motor-linea.is-curso-relator {
+  border-color: #c7d0e8;
+  background: #f7f9fe;
+}
+.motor-linea.is-fortaleza.is-sel,
+.motor-linea.is-curso-relator.is-sel {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px #e8ecf7;
+}
+.motor-linea.is-curso-relator { border-style: dashed; }
+
+.reconocer-lista {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  columns: 2;
+  column-gap: 26px;
+}
+.reconocer-lista li {
+  margin-bottom: 7px;
+  padding-left: 14px;
+  position: relative;
+  break-inside: avoid;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.reconocer-lista li::before {
+  content: "✔";
+  position: absolute;
+  left: 0;
+  top: 1px;
+  color: var(--success);
+  font-size: 10px;
+}
+.reconocer-sec {
+  display: block;
+  font-size: 11px;
+  color: var(--text-s);
+}
+
+@media (max-width: 760px) {
+  .reconocer-lista { columns: 1; }
+}
+
+/* --- cursos que no aplican a la familia del cargo ------------------------- */
+
+.motor-grupo.is-no-aplica {
+  border-left-width: 2px;
+  border-left-style: dotted;
+  border-left-color: var(--neutral);
+}
+.motor-sigla.is-no-aplica {
+  background: var(--neutral-bg);
+  color: var(--text-s);
+  font-size: 13px;
+}
+.motor-grupo.is-no-aplica > summary { cursor: pointer; list-style: none; }
+.motor-grupo.is-no-aplica > summary::-webkit-details-marker { display: none; }
+.motor-grupo.is-no-aplica > summary::after {
+  content: "▸";
+  order: -1;
+  margin-right: -4px;
+  color: var(--text-s);
+  font-size: 11px;
+}
+.motor-grupo.is-no-aplica[open] > summary::after { content: "▾"; }
+.motor-grupo.is-no-aplica .motor-linea { opacity: .8; }
+.motor-grupo.is-no-aplica .motor-linea.is-sel { opacity: 1; }
+
+.badge-neutral {
+  background: var(--neutral-bg);
+  color: var(--text-m);
+  border: 1px solid var(--border-s);
+}
+
+.seccion-nota-filtro.is-huerfana {
+  border-left-color: var(--warning);
+  background: var(--warning-bg);
+  color: #78350f;
+}
+
+.motor-nota-fuera {
+  margin: 14px 0 0;
+  padding: 10px 13px;
+  border-radius: var(--r-sm);
+  border-left: 3px solid var(--neutral);
+  background: var(--neutral-bg);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-m);
+}
+
+/* ===========================================================================
+   Criterios por familia de cargos (sólo RRHH)
+   =========================================================================== */
+
+.cc-familias {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.cc-fam {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.cc-fam:hover { border-color: var(--border-s); }
+.cc-fam.is-activa {
+  border-color: var(--accent);
+  background: var(--accent-100);
+  box-shadow: 0 0 0 2px var(--accent-100);
+}
+.cc-fam-cod {
+  font-family: var(--font-d);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--accent-700);
+}
+.cc-fam-nombre { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.3; }
+.cc-fam-conteo { font-size: 11px; color: var(--danger); font-weight: 600; }
+.cc-fam-conteo.is-vacio { color: var(--text-s); font-weight: 400; }
+
+.cc-seccion { margin-top: 22px; }
+.cc-seccion-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.cc-seccion-head h4 { margin: 0; font-size: 14.5px; }
+.cc-seccion-conteo { margin-left: auto; font-size: 11.5px; color: var(--text-s); }
+.cc-seccion-conteo.is-limite { color: var(--warning); font-weight: 600; }
+
+.cc-limite {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-bg);
+  color: #78350f;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.cc-lista { display: flex; flex-direction: column; gap: 7px; }
+
+.cc-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.cc-item.is-quitado {
+  border-style: dashed;
+  border-color: var(--border-s);
+  background: var(--neutral-bg);
+}
+.cc-item.is-quitado .cc-criterio { text-decoration: line-through; color: var(--text-s); }
+.cc-item > .btn { flex-shrink: 0; }
+
+.cc-item-texto { min-width: 0; flex: 1 1 auto; }
+.cc-cod {
+  display: inline-block;
+  margin-right: 7px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.cc-criterio { font-size: 13px; font-weight: 600; color: var(--text); }
+.cc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-s);
+}
+.cc-tipo {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--accent-100);
+  color: var(--accent-700);
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+.cc-tipo.is-con { background: var(--warning-bg); color: #92400e; }
+
+.cc-motivo {
+  margin: 6px 0 0;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border-left: 2px solid var(--border-s);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-m);
+}
+
+/* Catálogo de cargos de la familia -------------------------------------- */
+
+.cc-cargos {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.cc-cargo {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg);
+}
+.cc-cargo.is-no-eval {
+  border-style: dashed;
+  background: var(--surface);
+}
+.cc-cargo > .btn { flex-shrink: 0; }
+
+.cc-cargo-texto { min-width: 0; flex: 1 1 auto; }
+.cc-cargo-nombre {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 7px;
+}
+.cc-cargo.is-no-eval .cc-cargo-nombre { color: var(--text-m); }
+.cc-cargo-uso {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-s);
+}
+
+.cc-nuevo {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px dashed var(--border-s);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.cc-nuevo-titulo {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.cc-nuevo-linea {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.cc-nuevo-linea .form-field { flex: 1 1 auto; }
+.cc-nuevo-linea .btn { flex-shrink: 0; }
+.cc-nuevo-chk {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-m);
+  cursor: pointer;
+}
+.cc-nuevo-chk input[type="checkbox"] { width: auto; margin: 0; flex-shrink: 0; }
+#cc-nuevo-motivo-campo { margin-top: 8px; }
+
+@media (max-width: 640px) {
+  .cc-item { flex-direction: column; align-items: stretch; }
+  .cc-seccion-conteo { margin-left: 0; flex-basis: 100%; }
+  .cc-cargo { flex-direction: column; align-items: stretch; }
+  .cc-nuevo-linea { flex-direction: column; }
+  .cc-nuevo-linea .btn { width: 100%; }
+}
+
+.fam-celda { font-size: 12.5px; color: var(--text-m); white-space: nowrap; }
+.fam-celda strong { color: var(--accent-700); margin-right: 4px; }
+
+/* Plan de acción: la propuesta se lee, no se rellena ------------------------ */
+
+.motor-porque {
+  margin: 4px 0 0 28px;
+  font-size: 11.5px;
+  color: var(--text-s);
+  cursor: help;
+  /* Dos líneas y punto. Varias explicaciones del motor son el mismo párrafo
+     repetido en cada sección; completas ocupaban más que la propuesta misma.
+     El texto entero sigue disponible en el título emergente. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.motor-fuera-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  color: #92400e;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.motor-plan {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 7px 0 0 28px;
+  font-size: 12px;
+  color: var(--text-m);
+}
+.motor-plan-etiqueta {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-s);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.motor-ajustar {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text-m);
+  cursor: pointer;
+}
+.motor-ajustar:hover { border-color: var(--accent); color: var(--accent-700); }
+.motor-ajustar.is-abierto { border-color: var(--accent); color: var(--accent-700); font-weight: 600; }
+
+.motor-compromiso-texto {
+  margin: 6px 0 0 28px;
+  padding: 8px 11px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.motor-compromiso-texto.is-vacio {
+  border-left-color: var(--danger);
+  color: var(--danger);
+  font-style: italic;
+}
+
+.motor-linea-cuerpo[hidden] { display: none; }
+
+@media (max-width: 640px) {
+  .motor-porque, .motor-plan, .motor-compromiso-texto { margin-left: 0; }
+  .motor-ajustar { margin-left: 0; }
+}

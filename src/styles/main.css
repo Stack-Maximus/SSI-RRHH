@@ -7,5 +7,7 @@
 @import './views.css';
 @import './forms.css';
 @import './solicitudes.css';
+@import './contratacion.css';
+@import './comprobante.css';
 /* brand.css va al FINAL para sobreescribir fondos y aplicar la identidad Metalium */
 @import './brand.css';

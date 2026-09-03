@@ -9,7 +9,8 @@ import * as XLSX from 'xlsx';
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { pesos } from '../ui/solicitud-format.js';
+import { pesos, fechaCorta } from '../ui/solicitud-format.js';
+import { renderTrabajadorPerfil } from './trabajador-perfil.js';
 
 let trabajadores = [], centros = [];
 let porRut = new Map();          // rut normalizado -> trabajador
@@ -25,6 +26,26 @@ const parseMoney = (v) => {
   return isNaN(n) ? null : Math.round(n);
 };
 const txt = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim());
+const parseFecha = (v) => {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'number') {
+    const d = XLSX.SSF.parse_date_code(v);
+    if (!d) return null;
+    return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+  }
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const d = new Date(s);
+  return isNaN(d) ? null : d.toISOString().slice(0, 10);
+};
+const parseBool = (v) => {
+  if (v == null || v === '') return false;
+  const s = String(v).trim().toLowerCase();
+  return s === 'si' || s === 'sí' || s === 'true' || s === '1' || s === 'x';
+};
 
 // normaliza encabezados: minúsculas, sin acentos, espacios simples
 const normKey = (k) => String(k).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
@@ -59,27 +80,76 @@ export async function renderTrabajadores(container) {
         </label>
       </div>
     </div>
-    <p class="hint">La planilla debe seguir el formato de la plantilla maestra. Se cargan todos los trabajadores: los existentes se actualizan por RUT y los nuevos se crean.</p>
-    <div id="import-zone"></div>`;
+    <p class="hint">La planilla debe seguir el formato de la plantilla maestra. Se cargan todos los trabajadores: los existentes se actualizan por RUT y los nuevos se crean.
+      La fecha de término de contrato y "Indefinido" también se pueden editar acá mismo, fila por fila.</p>
+    <div id="import-zone"></div>
+    <div class="table-wrap" style="margin-top:14px;">
+      <table class="data-table">
+        <thead><tr><th>RUT</th><th>Nombre</th><th>Cargo</th><th>Centro</th><th>Fecha término contrato</th><th>Indefinido</th><th></th></tr></thead>
+        <tbody id="trab-tbody"></tbody>
+      </table>
+    </div>`;
 
   container.querySelector('#btn-plantilla').addEventListener('click', descargarPlantilla);
   container.querySelector('#btn-export').addEventListener('click', exportar);
   container.querySelector('#file-import').addEventListener('change', (e) => {
     if (e.target.files?.[0]) importar(e.target.files[0], container);
   });
+
+  pintarTabla(container);
 }
 
-const HEADERS = ['RUT', 'Nombre Completo', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Sueldo Líquido Pactado'];
+function pintarTabla(container) {
+  const tbody = container.querySelector('#trab-tbody');
+  tbody.innerHTML = trabajadores.map(t => `
+    <tr data-id="${t.id}" class="${t.activo ? '' : 'row-inactivo'}">
+      <td class="mono">${escapeHtml(t.rut || '—')}</td>
+      <td>${escapeHtml(t.nombre)}</td>
+      <td>${escapeHtml(t.cargo || '—')}</td>
+      <td>${escapeHtml(idToCentro.get(t.centro_costo_id)?.nombre || '—')}</td>
+      <td><input type="date" class="t-input" data-field="fecha_termino_contrato" value="${t.fecha_termino_contrato || ''}" ${t.contrato_indefinido ? 'disabled' : ''}></td>
+      <td class="u-center"><input type="checkbox" class="t-input" data-field="contrato_indefinido" ${t.contrato_indefinido ? 'checked' : ''}></td>
+      <td><button class="link-btn" data-perfil="${t.id}">Ver perfil ▸</button></td>
+    </tr>`).join('');
+
+  tbody.querySelectorAll('.t-input').forEach(el => {
+    const ev = el.type === 'checkbox' ? 'change' : 'change';
+    el.addEventListener(ev, async () => {
+      const tr = el.closest('tr');
+      const id = tr.dataset.id;
+      const field = el.dataset.field;
+      const value = el.type === 'checkbox' ? el.checked : (el.value || null);
+      const patch = { [field]: value };
+      if (field === 'contrato_indefinido' && value) patch.fecha_termino_contrato = null; // indefinido no lleva fecha
+      try {
+        await Data.actualizarTrabajador(id, patch);
+        const t = trabajadores.find(x => x.id === id);
+        Object.assign(t, patch);
+        Toast.success('Guardado', '');
+        pintarTabla(container);
+      } catch (e) {
+        console.error('[trabajadores] actualizar', e);
+        Toast.error('Error', 'No se pudo guardar.');
+      }
+    });
+  });
+
+  tbody.querySelectorAll('[data-perfil]').forEach(btn => {
+    btn.addEventListener('click', () => renderTrabajadorPerfil(container, btn.dataset.perfil, 'trabajadores'));
+  });
+}
+
+const HEADERS = ['RUT', 'Nombre Completo', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Sueldo Líquido Pactado', 'Fecha Término Contrato', 'Contrato Indefinido'];
 
 function descargarPlantilla() {
   const c0 = centros[0];
   const aoa = [
     HEADERS,
-    ['12.345.678-9', 'Juan Pérez González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo ?? '10', c0?.nombre ?? '', 650000],
-    ['98.765.432-1', 'María Soto Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000]
+    ['12.345.678-9', 'Juan Pérez González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo ?? '10', c0?.nombre ?? '', 650000, '2027-03-31', 'No'],
+    ['98.765.432-1', 'María Soto Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000, '', 'Sí']
   ];
   const wsT = XLSX.utils.aoa_to_sheet(aoa);
-  wsT['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 20 }];
+  wsT['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 20 }, { wch: 18 }];
 
   const inst = [
     ['PLANTILLA MAESTRA DE TRABAJADORES · SSI-RRHH Metalium'],
@@ -89,6 +159,8 @@ function descargarPlantilla() {
     ['Antes de aplicar, la app te muestra trabajador por trabajador qué cambia.'],
     ['El "Código Centro Costo" debe coincidir con uno de la lista de abajo.'],
     ['"Sueldo Líquido Pactado": número, sin $ ni puntos (ej: 650000).'],
+    ['"Fecha Término Contrato": formato AAAA-MM-DD. Se dejará vacía si el contrato es indefinido.'],
+    ['"Contrato Indefinido": Sí / No. Si es "Sí", el trabajador no entra al aviso de próximos vencimientos.'],
     [],
     ['CÓDIGOS DE CENTRO DE COSTO VÁLIDOS'],
     ['Código', 'Nombre'],
@@ -112,7 +184,9 @@ function exportar() {
     'Cargo': t.cargo,
     'Código Centro Costo': idToCentro.get(t.centro_costo_id)?.codigo ?? '',
     'Nombre Centro Costo': idToCentro.get(t.centro_costo_id)?.nombre ?? '',
-    'Sueldo Líquido Pactado': t.sueldo_liquido ?? ''
+    'Sueldo Líquido Pactado': t.sueldo_liquido ?? '',
+    'Fecha Término Contrato': t.fecha_termino_contrato ?? '',
+    'Contrato Indefinido': t.contrato_indefinido ? 'Sí' : 'No'
   }));
   const ws = XLSX.utils.json_to_sheet(filas);
   const wb = XLSX.utils.book_new();
@@ -128,7 +202,7 @@ async function importar(file, container) {
   let parsed;
   try {
     const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
     const ws = wb.Sheets[wb.SheetNames[0]];
     parsed = XLSX.utils.sheet_to_json(ws, { defval: null });
   } catch (e) {
@@ -146,6 +220,7 @@ async function importar(file, container) {
     const rut = txt(pick(rn, 'rut'));
     if (!rut) continue; // fila sin RUT, se ignora
     const codigo = txt(pick(rn, 'codigo centro costo', 'codigo cc', 'codigo centro de costo'));
+    const indefinido = parseBool(pick(rn, 'contrato indefinido', 'indefinido'));
     const fila = {
       rut,
       nombre: txt(pick(rn, 'nombre completo', 'nombre')),
@@ -153,6 +228,8 @@ async function importar(file, container) {
       cargo: txt(pick(rn, 'cargo')),
       sueldo_liquido: parseMoney(pick(rn, 'sueldo liquido pactado', 'sueldo liquido', 'sueldo')),
       centro_costo_id: codigo ? (codigoToId.get(codigo) ?? null) : null,
+      contrato_indefinido: indefinido,
+      fecha_termino_contrato: indefinido ? null : parseFecha(pick(rn, 'fecha termino contrato', 'fecha de termino de contrato', 'fecha termino')),
       _codigo: codigo
     };
     const prev = porRut.get(normRut(rut));
@@ -166,6 +243,8 @@ async function importar(file, container) {
       cmp('cargo', 'Cargo');
       cmp('profesion', 'Profesión');
       cmp('sueldo_liquido', 'Sueldo', pesos);
+      cmp('fecha_termino_contrato', 'Fecha término', fechaCorta);
+      cmp('contrato_indefinido', 'Indefinido', (v) => (v ? 'Sí' : 'No'));
       if (String(prev.centro_costo_id ?? '') !== String(fila.centro_costo_id ?? '')) {
         cambios.push(`Centro: ${idToCentro.get(prev.centro_costo_id)?.codigo || '—'} → ${fila._codigo || '—'}`);
       }

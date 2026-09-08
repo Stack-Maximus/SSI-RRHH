@@ -22,6 +22,8 @@ import { renderTrabajadores } from '../views/trabajadores.js';
 import { renderContrataciones } from '../views/contrataciones.js';
 import { renderHomologacion } from '../views/homologacion.js';
 import { renderChecklistDocumentos } from '../views/checklist-documentos.js';
+import { renderDashboardRRHH } from '../views/dashboard-rrhh.js';
+import { renderDashboardPrevencion } from '../views/dashboard-prevencion.js';
 import { makePlaceholder } from '../views/placeholder.js';
 
 const VIEWS = {
@@ -34,6 +36,8 @@ const VIEWS = {
   'contrataciones':       renderContrataciones,
   'homologacion':         renderHomologacion,
   'checklist-documentos': renderChecklistDocumentos,
+  'dashboard-rrhh':       renderDashboardRRHH,
+  'dashboard-prevencion': renderDashboardPrevencion,
   'usuarios':             renderUsuarios,
   'centros-costo':        renderCentrosCosto,
   'cargos':               renderCargos,
@@ -51,6 +55,8 @@ const TITLES = {
   'contrataciones':       ['Contratación', 'Ingresos aprobados en proceso de contratación'],
   'homologacion':         ['Homologación SST', 'Documentos de contratación para homologar ante el cliente'],
   'checklist-documentos': ['Checklist de documentos', 'Catálogo de documentos del proceso de contratación'],
+  'dashboard-rrhh':       ['SLA Contratación', 'Tiempos de armado de contrato · meta: 3 días hábiles'],
+  'dashboard-prevencion': ['SLA Homologación', 'Tiempos de homologación SST · meta: 8 días hábiles'],
   'usuarios':             ['Usuarios', 'Gestión de cuentas y roles'],
   'centros-costo':        ['Centros de costo', 'Obras y administradores de obra'],
   'cargos':               ['Cargos', 'Lista de cargos para las solicitudes'],

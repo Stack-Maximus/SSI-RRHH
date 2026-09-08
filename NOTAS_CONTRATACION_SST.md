@@ -29,7 +29,9 @@
     `supabase functions deploy notificar`, `supabase functions deploy comprobante-pdf`,
     `supabase functions deploy maestro-pdf`. Las tres importan código de `supabase/functions/_shared/`
     (el CLI de Supabase lo empaqueta solo, no hace falta nada especial).
-13. `npm install && npm run build` (o `npm run dev` para probar local). No hay variables `.env` nuevas.
+13. Correr **`supabase/migrations/0011_homologacion_autorizacion.sql`** (registro de quién y cuándo autoriza
+    el ingreso a obra -- ver sección 9, dashboards de SLA). No agrega ni cambia ninguna Edge Function.
+14. `npm install && npm run build` (o `npm run dev` para probar local). No hay variables `.env` nuevas.
 
 **Importante — descomprimir el zip no despliega nada solo.** El zip son los archivos del proyecto; para
 que un cambio quede activo hay que llevarlo a cada destino que le corresponda, y son **tres destinos
@@ -107,6 +109,10 @@ instalar el CLI, según tu sistema operativo (verificado contra la documentació
 - **Linux**: `npm install supabase --save-dev` en la carpeta del proyecto, y despues usar `npx supabase ...`
   en vez de `supabase ...` en todos los comandos de abajo (o bajar el `.deb`/`.rpm` desde
   github.com/supabase/cli/releases).
+- **Windows sin acceso de administrador / sin poder instalar Scoop**: mismo truco que Linux --
+  `npm install supabase --save-dev` en la carpeta del proyecto (es un paquete de npm común, no depende del
+  sistema operativo) y `npx supabase ...` en vez de `supabase ...`. Así lo terminamos resolviendo la vez que
+  Scoop no estaba disponible en tu máquina.
 
 (`npm install -g supabase`, que te sugerí en una entrega anterior, no es el método que Supabase documenta
 hoy -- mejor usa el de tu sistema operativo de la lista de arriba.)
@@ -629,10 +635,85 @@ de trabajadores) sigue usando la librería anterior (`xlsx`) tal cual estaba -- 
 tocar algo que no está roto sin que me lo confirmes. Si quieres que ese Excel tenga el mismo diseño, es la
 misma técnica y lo puedo hacer.
 
-## 9. Pendiente / sugerido para después
+## 9. Dashboards de SLA (RRHH y Prevención) + autorización de ingreso a obra
 
-- No agregué KPIs de contratación al Dashboard (tiempos hasta "documentos completos", por canal, etc.) —
-  puedo agregarlo si quieres, siguiendo el mismo patrón del dashboard actual.
+Pediste medir dos tiempos de respuesta puntuales -- cuánto se demora RRHH en armar el contrato, y cuánto se
+demora Prevención en homologar -- cada uno con su propia meta en **días hábiles**. Esto agrega los dos
+dashboards (uno por rol) más un registro nuevo que hacía falta para poder medir el segundo tramo.
+
+**Los dos tramos que se miden, y dónde empieza/termina cada uno:**
+
+| Dashboard | Para quién | Empieza | Termina | Meta |
+|---|---|---|---|---|
+| **SLA Contratación** | RRHH / admin | Se crea la contratación (botón "Iniciar contratación") | Se sube el documento **Contrato de Trabajo** | 3 días hábiles |
+| **SLA Homologación** | Prevencionista / admin | Se sube el **Contrato de Trabajo** | El prevencionista autoriza el ingreso a obra (botón nuevo) | 8 días hábiles |
+
+El **Contrato de Trabajo** es la bisagra entre los dos tramos: para RRHH marca que terminó su parte, y para
+Prevención marca que recién ahí puede empezar a homologar (antes de eso, aunque la contratación exista, el
+expediente todavía no tiene lo mínimo para revisar). En la pantalla de Homologación SST, ese ítem del
+checklist ahora se ve con la etiqueta **"Inicia el plazo de homologación"** para que quede claro por qué
+ese documento en particular es el que dispara el conteo.
+
+**Botón nuevo: "Autorizar ingreso a obra"** (Homologación SST, dentro del detalle de cada contratación). Antes
+no existía ningún registro de que el prevencionista efectivamente autorizó que la persona entre a la obra --
+`documentos_completos` es un estado automático (se calcula solo cuando ya está todo lo obligatorio subido) que
+no necesariamente coincide con que alguien revisó y dio el visto bueno. El botón:
+- Si todavía falta algún documento de los marcados para homologación, muestra una advertencia ("Aún falta(n)
+  N documento(s) requerido(s)") pero **no bloquea** el botón -- decidí dejarlo como aviso, no como impedimento
+  duro, mismo criterio que ya usa el resto de la app (por ejemplo, iniciar una contratación sin prevencionista
+  asignado también solo avisa). Si prefieres que sea un bloqueo real, lo cambio.
+- Al confirmar, guarda **quién** y **cuándo** (`homologacion_aprobada_por` / `homologacion_aprobada_at` en
+  `contrataciones`, migración `0011_homologacion_autorizacion.sql`) y ya no se puede volver a autorizar la
+  misma contratación (el botón desaparece y queda un mensaje de solo lectura con la fecha).
+- Mismo criterio de seguridad que ya usa `Data.decidir()` con las aprobaciones de solicitudes: el control es
+  a **nivel de fila** (RLS -- solo puede tocar contrataciones de su(s) centro(s) asignado(s), y solo mientras
+  no esté ya autorizada), no a nivel de columna. Postgres no ofrece permisos por columna sin `GRANT`/`REVOKE`
+  explícitos, y este proyecto viene evitando esa complejidad adicional a propósito; en la práctica, quien
+  autoriza solo puede hacerlo a través de la pantalla (que solo manda esos 2 campos), no porque la base de
+  datos se lo impida campo por campo. Está comentado así, en detalle, dentro de la misma migración.
+
+**Días hábiles (Chile)**: nuevo archivo `src/utils/dias-habiles.js` -- fines de semana + feriados
+irrenunciables nacionales (fijos, Semana Santa calculada, y los que se trasladan a/desde lunes según la ley).
+El plazo empieza a correr el día **siguiente** al hecho que lo origina (mismo criterio que los plazos
+administrativos en Chile, art. 25 Ley 19.880), no el mismo día. Cosas a tener en cuenta para años futuros,
+comentadas en detalle arriba de cada constante dentro del archivo:
+- **Feriados regionales** (ej. Arica y Parinacota, Chillán) **no están incluidos** -- no existe un campo
+  región/comuna por centro de costo hoy. Si algún centro los necesita, avísame y lo agregamos.
+- **Feriados de elecciones/plebiscito/censo** (Leyes 20.983 y 20.215) tampoco se pueden calcular -- cambian
+  cada año según el calendario electoral. Quedan en un arreglo manual `FERIADOS_ADHOC` en ese archivo, para
+  completar a mano cuando se sepa la fecha.
+- El **"Día Nacional de los Pueblos Indígenas"** cae el solsticio de invierno, que varía entre el 20 y el 22
+  de junio de forma astronómica (no hay fórmula perpetua). Hay una tabla `SOLSTICIOS` con los años ya
+  confirmados (2024 a 2027); para un año que falte, el código usa el 21 de junio por defecto -- conviene
+  agregar el año correspondiente a esa tabla apenas se acerque, y confirmar la fecha oficial.
+- El resto (fijos, Semana Santa, y los que se trasladan a lunes) se recalculan solos para cualquier año, sin
+  mantención.
+
+**Qué se ve en cada dashboard**: contrataciones en curso, atrasadas (más del plazo y todavía sin cerrar),
+% de cumplimiento del SLA (sobre los procesos ya finalizados) y promedio de días hábiles, más un desglose por
+centro de costo y una tabla con el detalle de cada contratación (las atrasadas/en curso primero). Mismo estilo
+visual que el Dashboard actual (`kpis`) -- tarjetas KPI, barras, tabla -- para que se sienta parte de la misma
+app, sin agregar ninguna librería nueva.
+
+**A quién le aparece cada uno**: "SLA Contratación" se agregó al menú de `rrhh` y `admin`; "SLA Homologación"
+al de `prevencionista` y `admin`. De paso, `admin` también sumó **Historial** a su menú (antes le faltaba --
+lo tenía RRHH pero no admin, y no hay ninguna razón para que admin no lo vea también).
+
+**Desglose por integrante de RRHH (agregado después, mismo día):** pediste ver también quién de RRHH está
+llevando cada contratación y cuánto se demora cada uno -- se agregó una tabla nueva "Tiempos por integrante
+de RRHH" en el dashboard, arriba del detalle general, con Contrataciones / En curso / Atrasadas / Promedio
+días hábiles / Cumplimiento SLA por persona (ordenada con los más atrasados primero), y una columna
+**Responsable** nueva en la tabla de detalle para poder ubicar los casos de cada quien. El "responsable" que
+uso es **quien creó la contratación** (`contrataciones.creada_por`, ya existía en la base, no hizo falta
+ninguna migración) -- lo tomé como el dueño del caso de principio a fin. Si en la práctica quien arma y sube
+el contrato suele ser otra persona (no quien inició la contratación), y prefieres medir por quien efectivamente
+subió el documento (`documentos_contratacion.subido_por`), dímelo y cambio el criterio -- es un ajuste chico.
+
+**Aplica con**: migración `0011_homologacion_autorizacion.sql` + los archivos de `src/` de esta entrega
+(nada en Edge Functions). Sin variables `.env` nuevas.
+
+## 10. Pendiente / sugerido para después
+
 - No agregué borrado de documentos ya subidos (solo "reemplazar"); si necesitas poder sacar uno sin
   reemplazarlo, lo agrego.
 - Sigue abierto si un **traslado** también debería avisarle a algún prevencionista (ver sección 4) -- es un

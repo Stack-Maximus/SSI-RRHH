@@ -8,10 +8,11 @@
  */
 
 import { Data } from '../db/data.js';
-import { Toast } from '../ui/toast.js';
+import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
 import { fechaCorta } from '../ui/solicitud-format.js';
 import { estadoContratacionBadge, canalLabel, tipoTrabajadorLabel, checklistParaTipo } from '../ui/contratacion-format.js';
+import { state } from '../core/state.js';
 
 export async function renderHomologacion(container) {
   container.innerHTML = '<div class="view-loading">Cargando homologaciones...</div>';
@@ -80,16 +81,30 @@ async function verDetalle(container, contratacionId, contrataciones, checklist) 
 
   const fila = (item) => {
     const doc = docPorItem.get(item.id);
+    const disparaSla = item.codigo === 'contrato_trabajo'
+      ? ' <span class="badge badge-info">Inicia el plazo de homologación</span>' : '';
     return `
       <div class="chk-row ${doc ? 'chk-ok' : ''}">
         <div class="chk-info">
-          <div class="chk-nombre">${doc ? '✅' : '⬜'} ${escapeHtml(item.nombre)}</div>
+          <div class="chk-nombre">${doc ? '✅' : '⬜'} ${escapeHtml(item.nombre)}${disparaSla}</div>
           ${doc
             ? `<div class="muted"><button class="link-btn" data-doc="${doc.storage_path}">${escapeHtml(doc.nombre_archivo)}</button> · subido ${fechaCorta(doc.created_at)}</div>`
             : '<div class="muted">Aún no lo sube RRHH.</div>'}
         </div>
       </div>`;
   };
+
+  const faltantesPrincipales = principales.filter(i => !docPorItem.has(i.id)).length;
+  const autorizada = !!c.homologacion_aprobada_at;
+  const accionAutorizacion = c.estado === 'anulada' ? '' : autorizada
+    ? `<div class="card"><p class="hint">✅ Ingreso a obra autorizado el ${fechaCorta(c.homologacion_aprobada_at)}.</p></div>`
+    : `<div class="card">
+        <h3>Autorización de ingreso a obra</h3>
+        ${faltantesPrincipales > 0
+          ? `<p class="hint">⚠️ Aún ${faltantesPrincipales === 1 ? 'falta 1 documento requerido' : `faltan ${faltantesPrincipales} documentos requeridos`} para homologación.</p>`
+          : '<p class="hint">Ya están los documentos requeridos para homologación. Revísalos y, si todo está en regla, autoriza el ingreso.</p>'}
+        <button class="btn btn-primary" id="autorizar-ingreso">Autorizar ingreso a obra</button>
+      </div>`;
 
   container.innerHTML = `
     <button class="link-btn" id="volver">← Volver</button>
@@ -107,7 +122,8 @@ async function verDetalle(container, contratacionId, contrataciones, checklist) 
         <p class="hint" style="margin-top:8px;">Resto del expediente de contratación, por si necesitas revisar algo puntual que no es parte del checklist estándar de homologación.</p>
         <div class="checklist-list" style="margin-top:10px;">${otros.map(fila).join('') || '<span class="muted">No hay más documentos en este checklist.</span>'}</div>
       </details>
-    </div>`;
+    </div>
+    ${accionAutorizacion}`;
 
   container.querySelector('#volver').addEventListener('click', () => window.Router.go('homologacion'));
   container.querySelectorAll('[data-doc]').forEach(btn => {
@@ -121,4 +137,29 @@ async function verDetalle(container, contratacionId, contrataciones, checklist) 
       }
     });
   });
+
+  const btnAutorizar = container.querySelector('#autorizar-ingreso');
+  if (btnAutorizar) {
+    btnAutorizar.addEventListener('click', async () => {
+      const ok = await Confirm.ask({
+        title: 'Autorizar ingreso a obra',
+        text: `¿Confirmas que ${c.nombre_candidato} queda autorizado para ingresar a la obra designada?`,
+        variant: 'primary',
+        confirmText: 'Autorizar'
+      });
+      if (!ok) return;
+      btnAutorizar.disabled = true; btnAutorizar.textContent = 'Autorizando...';
+      try {
+        await Data.autorizarIngresoObra(c.id, state.user.id);
+        Toast.success('Ingreso autorizado', `${c.nombre_candidato} ya puede ingresar a la obra.`);
+        c.homologacion_aprobada_at = new Date().toISOString();
+        c.homologacion_aprobada_por = state.user.id;
+        verDetalle(container, contratacionId, contrataciones, checklist);
+      } catch (e) {
+        console.error('[homologacion] autorizar', e);
+        Toast.error('Error', e.message || 'No se pudo autorizar el ingreso.');
+        btnAutorizar.disabled = false; btnAutorizar.textContent = 'Autorizar ingreso a obra';
+      }
+    });
+  }
 }

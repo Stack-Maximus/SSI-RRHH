@@ -11,10 +11,11 @@ export const ROLES = {
   solicitante:    { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
   supervisor:     { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
   aprobador:      { menu: ['inicio', 'bandeja'] },
-  rrhh:           { menu: ['inicio', 'solicitudes', 'historial', 'contrataciones'] },
-  prevencionista: { menu: ['inicio', 'homologacion'] },
+  rrhh:           { menu: ['inicio', 'solicitudes', 'historial', 'contrataciones', 'dashboard-rrhh'] },
+  prevencionista: { menu: ['inicio', 'homologacion', 'dashboard-prevencion'] },
   admin:          { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes', 'bandeja',
-                            'solicitudes', 'contrataciones', 'homologacion', 'checklist-documentos',
+                            'solicitudes', 'historial', 'contrataciones', 'homologacion', 'checklist-documentos',
+                            'dashboard-rrhh', 'dashboard-prevencion',
                             'usuarios', 'centros-costo', 'cargos', 'trabajadores', 'kpis'] }
 };
 
@@ -41,7 +42,9 @@ export const NAV_META = {
   'centros-costo':        { icon: '\u{1F3D7}️', label: 'Centros de costo' },
   'cargos':               { icon: '\u{1F9F0}', label: 'Cargos' },
   'trabajadores':         { icon: '\u{1F477}', label: 'Trabajadores' },
-  'kpis':                 { icon: '\u{1F4CA}', label: 'Dashboard' }
+  'kpis':                 { icon: '\u{1F4CA}', label: 'Dashboard' },
+  'dashboard-rrhh':       { icon: '⏱️', label: 'SLA Contratación' },
+  'dashboard-prevencion': { icon: '\u{1F6E1}️', label: 'SLA Homologación' }
 };
 
 export const ROLE_LABELS = {

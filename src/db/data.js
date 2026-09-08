@@ -471,5 +471,38 @@ export const Data = {
       .from('contratacion-documentos').createSignedUrl(storagePath, expiresIn);
     if (error) throw error;
     return data.signedUrl;
+  },
+
+  /**
+   * Mapa contratacion_id -> fecha (created_at) en que se subió el
+   * documento "Contrato de Trabajo" de esa contratación. Marca el fin del
+   * plazo de RRHH y el inicio del plazo de homologación (dashboards de SLA).
+   * Si el documento todavía no se sube, esa contratación no aparece en el mapa.
+   */
+  async fechasContratoSubido(contratacionIds) {
+    const u = [...new Set(contratacionIds.filter(Boolean))];
+    if (!u.length) return new Map();
+    const { data: item, error: e1 } = await supabase
+      .from('documentos_checklist').select('id').eq('codigo', 'contrato_trabajo').maybeSingle();
+    if (e1) throw e1;
+    if (!item) { console.warn('[fechasContratoSubido] no existe el ítem de checklist "contrato_trabajo"'); return new Map(); }
+    const { data, error } = await supabase
+      .from('documentos_contratacion').select('contratacion_id, created_at')
+      .in('contratacion_id', u).eq('checklist_item_id', item.id);
+    if (error) throw error;
+    return new Map((data || []).map(d => [d.contratacion_id, d.created_at]));
+  },
+
+  /**
+   * Autoriza el ingreso del trabajador a la obra designada (fin del plazo
+   * de homologación SST). Solo puede hacerlo el prevencionista asignado al
+   * centro de costo de la solicitud de origen (RLS lo valida, ver
+   * migración 0011); botón "Autorizar ingreso a obra" en Homologación SST.
+   */
+  async autorizarIngresoObra(contratacionId, userId) {
+    const { error } = await supabase.from('contrataciones')
+      .update({ homologacion_aprobada_at: new Date().toISOString(), homologacion_aprobada_por: userId })
+      .eq('id', contratacionId);
+    if (error) throw error;
   }
 };

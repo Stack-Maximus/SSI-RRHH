@@ -6,10 +6,12 @@
 
 import ExcelJS from 'exceljs';
 import { Data } from '../db/data.js';
-import { Toast } from '../ui/toast.js';
+import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
 import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen, detalleHtml, detalleTexto } from '../ui/solicitud-format.js';
-import { TIPO_SOLICITUD_META, MAESTRO_SOLICITUDES_CODIGO, DOCUMENTO_CODIGOS } from '../config.js';
+import { TIPO_SOLICITUD_META, MAESTRO_SOLICITUDES_CODIGO, DOCUMENTO_CODIGOS, TIPOS_SOLICITUD_SIN_DOCUMENTO } from '../config.js';
+import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
+import { state } from '../core/state.js';
 import { renderComprobante } from './comprobante.js';
 import { encabezadoSvg, ajustarTextosEncabezado } from '../ui/encabezado-svg.js';
 // Necesario para que .eh-svg text tenga font-family (Poppins/Arial) -- ver
@@ -17,7 +19,7 @@ import { encabezadoSvg, ajustarTextosEncabezado } from '../ui/encabezado-svg.js'
 // esta hoja de estilos no viaja cuando se serializa solo el <svg>.
 import '../styles/comprobante.css';
 
-let _sols = [], _centros, _trab, _perfiles, _container;
+let _sols = [], _centros, _trab, _perfiles, _checklist = [], _docsTraslado = new Map(), _backView, _container;
 
 export function renderSolicitudes(container) {
   return cargar(container, { soloFinalizadas: false, titulo: 'Todas las solicitudes', backView: 'solicitudes' });
@@ -28,14 +30,18 @@ export function renderHistorial(container) {
 
 async function cargar(container, opts) {
   _container = container;
+  _backView = opts.backView;
   container.innerHTML = '<div class="view-loading">Cargando solicitudes...</div>';
   try {
-    const [sols, centros] = await Promise.all([Data.listTodasSolicitudes(), Data.listCentrosAdmin()]);
+    const [sols, centros, checklist] = await Promise.all([Data.listTodasSolicitudes(), Data.listCentrosAdmin(), Data.checklistDocumentos()]);
     _sols = opts.soloFinalizadas ? sols.filter(s => s.estado === 'aprobada' || s.estado === 'rechazada') : sols;
     _centros = new Map(centros.map(c => [c.id, c]));
-    [_trab, _perfiles] = await Promise.all([
+    _checklist = checklist;
+    const trasladoAprobadaIds = _sols.filter(s => s.tipo === 'traslado' && s.estado === 'aprobada').map(s => s.id);
+    [_trab, _perfiles, _docsTraslado] = await Promise.all([
       Data.trabajadoresPorId(_sols.map(s => s.trabajador_id)),
-      Data.perfilesPorId(_sols.map(s => s.solicitante_id))
+      Data.perfilesPorId(_sols.map(s => s.solicitante_id)),
+      Data.documentosTrasladoPorSolicitud(trasladoAprobadaIds)
     ]);
   } catch (e) {
     console.error('[solicitudes]', e);
@@ -88,6 +94,7 @@ async function cargar(container, opts) {
     });
     document.getElementById('sol-list').innerHTML = list.length ? grid(list) : '<div class="empty-state">No hay solicitudes que coincidan.</div>';
     wireDetalles(opts.backView);
+    wireAcciones();
   };
 
   container.querySelectorAll('#filtros .filter-tab').forEach(btn => {
@@ -113,7 +120,7 @@ function card(s) {
   const total = (s.aprobaciones || []).length;
   const steps = (s.aprobaciones || []).map(a => `<div class="sol-step">Aprobador ${a.orden} ${decisionBadge(a.decision)}</div>`).join('');
   return `
-    <div class="sol-card">
+    <div class="sol-card" data-sol="${s.id}">
       <div class="sol-card-top">
         <span class="sol-id">${s.codigo || '—'}</span>
         <span class="sol-tipo">${tipoLabel(s.tipo)}</span>
@@ -127,8 +134,71 @@ function card(s) {
         <div class="sol-steps" style="margin-top:10px;">${steps || '<span class="muted">Sin aprobadores</span>'}</div>
         ${s.motivo ? `<div class="sol-motivo">"${escapeHtml(s.motivo)}"</div>` : ''}
         <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>
+        ${accionesRRHH(s)}
       </div>
     </div>`;
+}
+
+/**
+ * Acción de RRHH para cerrar su plazo de SLA en el detalle expandido de la
+ * tarjeta (solo si la solicitud ya está aprobada): en traslado, checklist
+ * de 3 documentos con subida inline; en los otros 4 tipos sin documento
+ * propio, el botón "Marcar como procesado". Ingreso no tiene acción acá --
+ * su documento (Contrato de Trabajo) se sube desde "Contratación".
+ */
+function accionesRRHH(s) {
+  if (s.estado !== 'aprobada') return '';
+  if (s.tipo === 'traslado') return accionTraslado(s);
+  if (TIPOS_SOLICITUD_SIN_DOCUMENTO.includes(s.tipo)) return accionGenerica(s);
+  return '';
+}
+
+function accionTraslado(s) {
+  const documentos = _docsTraslado.get(s.id) || [];
+  const prog = progresoDocumentosTraslado(_checklist, documentos);
+  const filas = prog.items.map(item => {
+    const doc = prog.docPorItem.get(item.id);
+    return `
+      <div class="chk-row ${doc ? 'chk-ok' : ''}">
+        <div class="chk-info">
+          <div class="chk-nombre">${doc ? '✅' : '⬜'} ${escapeHtml(item.nombre)}</div>
+          ${doc
+            ? `<div class="muted"><button class="link-btn" data-doc-traslado="${doc.storage_path}">${escapeHtml(doc.nombre_archivo)}</button> · subido ${fechaCorta(doc.created_at)}</div>`
+            : '<div class="muted">Sin subir.</div>'}
+        </div>
+        <label class="btn btn-secondary" style="cursor:pointer;">${doc ? 'Reemplazar' : 'Subir'}
+          <input type="file" data-subir-traslado="${s.id}:${item.id}" hidden accept=".pdf,.png,.jpg,.jpeg,.docx,.doc"></label>
+      </div>`;
+  }).join('');
+  return `
+    <div class="sol-accion">
+      <h4>Documentos para homologación (Prevención)</h4>
+      <div class="checklist-list">${filas}</div>
+    </div>`;
+}
+
+function accionGenerica(s) {
+  if (s.procesado_rrhh_at) {
+    return `<div class="sol-accion"><p class="hint">✅ Procesado por RRHH el ${fechaCorta(s.procesado_rrhh_at)}.</p></div>`;
+  }
+  return `<div class="sol-accion">
+    <button class="btn btn-primary" data-marcar-procesado="${s.id}">Marcar como procesado</button>
+  </div>`;
+}
+
+/** Reemplaza en el DOM una sola tarjeta ya renderizada (tras una acción de
+ * RRHH), dejando su panel de detalle abierto -- evita recargar toda la
+ * grilla y perder el resto de los paneles que el usuario tenía abiertos. */
+function reRenderCard(s) {
+  const old = document.querySelector(`.sol-card[data-sol="${s.id}"]`);
+  if (!old) return;
+  old.outerHTML = card(s);
+  const fresh = document.querySelector(`.sol-card[data-sol="${s.id}"]`);
+  if (!fresh) return;
+  fresh.querySelector('.sol-expand').hidden = false;
+  fresh.querySelector('[data-toggle]').textContent = 'Ocultar detalle ▴';
+  wireDetalles(_backView, fresh);
+  wireAcciones(fresh);
 }
 
 // Colores de marca (mismos que el encabezado del PDF y los correos), para que
@@ -436,8 +506,8 @@ async function exportarMaestro() {
   }
 }
 
-function wireDetalles(backView) {
-  document.querySelectorAll('[data-toggle]').forEach(btn => {
+function wireDetalles(backView, root = document) {
+  root.querySelectorAll('[data-toggle]').forEach(btn => {
     btn.addEventListener('click', () => {
       const panel = btn.nextElementSibling;
       const abierto = !panel.hidden;
@@ -445,7 +515,75 @@ function wireDetalles(backView) {
       btn.textContent = abierto ? 'Ver detalle ▾' : 'Ocultar detalle ▴';
     });
   });
-  document.querySelectorAll('[data-comprobante]').forEach(btn => {
+  root.querySelectorAll('[data-comprobante]').forEach(btn => {
     btn.addEventListener('click', () => renderComprobante(_container, btn.dataset.comprobante, backView));
+  });
+}
+
+/** Wiring de las acciones de RRHH (subir documentos de traslado, marcar
+ * como procesado). root acota el querySelectorAll a una sola tarjeta
+ * recién reemplazada (ver reRenderCard) o a todo el documento (grilla completa). */
+function wireAcciones(root = document) {
+  root.querySelectorAll('input[type="file"][data-subir-traslado]').forEach(inp => {
+    inp.addEventListener('change', async () => {
+      const file = inp.files?.[0];
+      if (!file) return;
+      const [solicitudId, checklistItemId] = inp.dataset.subirTraslado.split(':');
+      // ¿Ya estaban los 3 documentos ANTES de esta subida? Si no, y quedan
+      // completos DESPUÉS, esta subida es la que cierra el plazo de RRHH.
+      const completoAntes = progresoDocumentosTraslado(_checklist, _docsTraslado.get(solicitudId) || []).completo;
+      try {
+        await Data.subirDocumentoTraslado(solicitudId, checklistItemId, file, state.user.id);
+        Toast.success('Documento subido', file.name);
+        const map = await Data.documentosTrasladoPorSolicitud([solicitudId]);
+        _docsTraslado.set(solicitudId, map.get(solicitudId) || []);
+        const completoDespues = progresoDocumentosTraslado(_checklist, _docsTraslado.get(solicitudId) || []).completo;
+        if (!completoAntes && completoDespues) Data.notificarEvento('rrhh_cerrado', { solicitud_id: solicitudId }); // fire-and-forget
+        const s = _sols.find(x => x.id === solicitudId);
+        if (s) reRenderCard(s);
+      } catch (e) {
+        console.error('[solicitudes] subir documento traslado', e);
+        Toast.error('Error', e.message || 'No se pudo subir el documento.');
+      }
+    });
+  });
+
+  root.querySelectorAll('[data-doc-traslado]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        const url = await Data.urlDocumentoTraslado(btn.dataset.docTraslado);
+        window.open(url, '_blank');
+      } catch (e) {
+        console.error('[solicitudes] url documento traslado', e);
+        Toast.error('Error', 'No se pudo abrir el documento.');
+      }
+    });
+  });
+
+  root.querySelectorAll('[data-marcar-procesado]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const solicitudId = btn.dataset.marcarProcesado;
+      const s = _sols.find(x => x.id === solicitudId);
+      if (!s) return;
+      const ok = await Confirm.ask({
+        title: 'Marcar como procesado',
+        text: `¿Confirmas que ya se procesó esta solicitud de ${tipoLabel(s.tipo)}? Esto cierra el plazo de SLA de RRHH.`,
+        variant: 'primary', confirmText: 'Marcar como procesado'
+      });
+      if (!ok) return;
+      btn.disabled = true; btn.textContent = 'Guardando...';
+      try {
+        await Data.marcarProcesadoRRHH(solicitudId, state.user.id);
+        Toast.success('Solicitud procesada', '');
+        Data.notificarEvento('rrhh_cerrado', { solicitud_id: solicitudId }); // fire-and-forget
+        s.procesado_rrhh_at = new Date().toISOString();
+        s.procesado_rrhh_por = state.user.id;
+        reRenderCard(s);
+      } catch (e) {
+        console.error('[solicitudes] marcar procesado', e);
+        Toast.error('Error', e.message || 'No se pudo marcar como procesado.');
+        btn.disabled = false; btn.textContent = 'Marcar como procesado';
+      }
+    });
   });
 }

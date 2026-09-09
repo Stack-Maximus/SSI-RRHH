@@ -23,8 +23,8 @@ export const ROLES = {
 // (mismo formulario para todos; el segmento de tipos varía según el rol)
 export const TIPOS_SOLICITUD_POR_ROL = {
   solicitante: ['ingreso', 'traslado'],
-  supervisor:  ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion'],
-  admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion']
+  supervisor:  ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'],
+  admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion']
 };
 
 // Ícono + etiqueta de cada vista (para el sidebar)
@@ -56,6 +56,12 @@ export const ROLE_LABELS = {
   supervisor: 'Supervisor'
 };
 
+// Tipos de solicitud SIN documento/autorización propia que cierre el plazo
+// de RRHH (dashboard "SLA Contratación"): se cierran a mano con el botón
+// "Marcar como procesado" en Solicitudes. ingreso cierra al subir el
+// Contrato de Trabajo; traslado, al completar sus 3 documentos.
+export const TIPOS_SOLICITUD_SIN_DOCUMENTO = ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'];
+
 // Etiquetas + ícono de cada tipo de solicitud (para segment-control, badges y listados)
 export const TIPO_SOLICITUD_META = {
   ingreso:         { icon: '➕', label: 'Ingreso',            desc: 'Pedir personal nuevo a la obra' },
@@ -63,7 +69,8 @@ export const TIPO_SOLICITUD_META = {
   aumento_sueldo:  { icon: '💰', label: 'Aumento de sueldo',  desc: 'Subir el sueldo líquido pactado' },
   bono:            { icon: '🎁', label: 'Bono',               desc: 'Asignar un bono puntual o periódico' },
   cambio_cargo:    { icon: '🔀', label: 'Cambio de cargo',    desc: 'Cambiar el cargo del trabajador' },
-  renovacion:      { icon: '⏳', label: 'Renovación',         desc: 'Renovar o extender el contrato' }
+  renovacion:      { icon: '⏳', label: 'Renovación',         desc: 'Renovar o extender el contrato' },
+  desvinculacion:  { icon: '🔚', label: 'Desvinculación',     desc: 'Terminar la relación laboral de un trabajador' }
 };
 
 // Canal por el que se contrata a la persona (proceso de Contratación)
@@ -77,6 +84,26 @@ export const TIPO_TRABAJADOR_LABELS = {
   administrativo: 'Administrativo',
   operativo: 'Operativo'
 };
+
+// Tipo de contrato del trabajador (trabajadores.tipo_contrato, ver migración
+// 0013). Compartido entre el formulario de Ingreso (Nueva solicitud) y el
+// maestro de Trabajadores (columna editable + Excel), para que no queden dos
+// listas que se puedan desincronizar.
+export const TIPOS_CONTRATO = ['Plazo Fijo', 'Obra o Faena', 'Indefinido'];
+
+// Causales de desvinculación (formulario "Nueva solicitud" -> Desvinculación).
+// Categorías prácticas de uso frecuente, no la tipificación legal completa
+// del Código del Trabajo -- se deja "Otra causal" con detalle libre en el
+// campo Observaciones para cualquier caso que no encaje.
+export const CAUSALES_DESVINCULACION = [
+  'Renuncia voluntaria',
+  'Mutuo acuerdo de las partes',
+  'Vencimiento del plazo convenido',
+  'Conclusión del trabajo o faena',
+  'Necesidades de la empresa',
+  'Causal disciplinaria (Art. 160)',
+  'Otra causal'
+];
 
 export const ESTADO_CONTRATACION_LABELS = {
   en_proceso: 'En proceso',
@@ -95,7 +122,11 @@ export const DOCUMENTO_CODIGOS = {
   aumento_sueldo:  { codigo: 'RRH-FOR-VAR-001', folioPrefijo: 'RRH-VAR-' },
   bono:            { codigo: 'RRH-FOR-VAR-002', folioPrefijo: 'RRH-BON-' },
   cambio_cargo:    { codigo: 'RRH-FOR-VAR-003', folioPrefijo: 'RRH-CAR-' },
-  renovacion:      { codigo: 'RRH-FOR-CON-007', folioPrefijo: 'RRH-REN-' }
+  renovacion:      { codigo: 'RRH-FOR-CON-007', folioPrefijo: 'RRH-REN-' },
+  // OJO: 'RRH-FOR-VAR-004' es un código provisorio (sigue la misma numeración
+  // que los otros 3 tipos "VAR") -- confírmalo o reemplázalo por el código
+  // real del Sistema de Gestión de Metalium para el formulario de Desvinculación.
+  desvinculacion:  { codigo: 'RRH-FOR-VAR-004', folioPrefijo: 'RRH-DES-' }
 };
 
 // Maestro de solicitudes (exportable a Excel): código del formulario, sin folio propio.

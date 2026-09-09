@@ -105,6 +105,13 @@ tr.row-inactivo { opacity: .5; }
 .dl-k { color: var(--text-m); }
 .dl-v { color: var(--text); font-weight: 600; text-align: right; }
 
+/* Acción de RRHH dentro del detalle expandido: documentos de traslado o
+   botón "Marcar como procesado". Más liviano que .card (que ya se ve
+   pesado anidado dentro de .sol-expand, que a su vez ya está dentro de
+   .sol-card) -- mismo lenguaje de separación que .sol-expand, un nivel más. */
+.sol-accion { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.sol-accion h4 { font-size: 12px; margin: 0 0 8px; color: var(--text-m); text-transform: uppercase; letter-spacing: .03em; }
+
 /* Dashboard */
 .dash-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
 @media (max-width: 760px) { .dash-cols { grid-template-columns: 1fr; } }

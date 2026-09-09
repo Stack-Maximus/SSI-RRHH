@@ -42,3 +42,48 @@ export function prioridadFila(f, slaDias) {
   if (f.dias > slaDias) return 2;
   return 3;
 }
+
+/**
+ * Fecha en que una solicitud terminó de aprobarse (la más tardía entre sus
+ * aprobaciones con decision='aprobado') -- inicio del plazo de RRHH en el
+ * dashboard "SLA Contratación". Solo tiene sentido para solicitudes que ya
+ * están con estado='aprobada' (ahí todas sus aprobaciones son 'aprobado').
+ */
+export function fechaAprobacionCompleta(sol) {
+  const decididas = (sol.aprobaciones || []).filter(a => a.decision === 'aprobado' && a.decidido_at);
+  if (!decididas.length) return null;
+  return decididas.reduce((max, a) => (!max || a.decidido_at > max) ? a.decidido_at : max, null);
+}
+
+/**
+ * Agrupa filas de un dashboard de SLA por una clave (tipo, responsable...) y
+ * calcula sus métricas agregadas (total, en curso, atrasadas, promedio de
+ * días hábiles, cumplimiento). Cada fila debe traer {finalizado, dias}.
+ */
+export function agregarPorClave(filas, slaDias, keyFn, labelFn) {
+  const grupos = new Map();
+  filas.forEach(f => {
+    const key = keyFn(f);
+    if (!grupos.has(key)) grupos.set(key, []);
+    grupos.get(key).push(f);
+  });
+  return [...grupos.entries()].map(([key, items]) => {
+    const finalizadasG = items.filter(f => f.finalizado);
+    const enCursoG = items.filter(f => !f.finalizado);
+    const atrasadasG = enCursoG.filter(f => f.dias > slaDias);
+    const cumplidasG = finalizadasG.filter(f => f.dias <= slaDias);
+    const promedioG = finalizadasG.length
+      ? Math.round((finalizadasG.reduce((acc, f) => acc + f.dias, 0) / finalizadasG.length) * 10) / 10
+      : null;
+    const cumplimientoG = finalizadasG.length ? pct(cumplidasG.length, finalizadasG.length) : null;
+    return {
+      key, label: labelFn(key),
+      total: items.length, enCurso: enCursoG.length, atrasadas: atrasadasG.length,
+      promedio: promedioG, cumplimiento: cumplimientoG
+    };
+  }).sort((a, b) => {
+    if (b.atrasadas !== a.atrasadas) return b.atrasadas - a.atrasadas;
+    const pa = a.promedio == null ? -1 : a.promedio, pb = b.promedio == null ? -1 : b.promedio;
+    return pb !== pa ? pb - pa : b.total - a.total;
+  });
+}

@@ -13,6 +13,7 @@ export const TIPO_LABELS: Record<string, string> = {
   bono: 'Bono',
   cambio_cargo: 'Cambio de cargo',
   renovacion: 'Renovación',
+  desvinculacion: 'Desvinculación',
 };
 
 export function tipoTxt(t: string) {
@@ -28,6 +29,7 @@ export const DOCUMENTO_CODIGOS: Record<string, { codigo: string; folioPrefijo: s
   bono:           { codigo: 'RRH-FOR-VAR-002', folioPrefijo: 'RRH-BON-' },
   cambio_cargo:   { codigo: 'RRH-FOR-VAR-003', folioPrefijo: 'RRH-CAR-' },
   renovacion:     { codigo: 'RRH-FOR-CON-007', folioPrefijo: 'RRH-REN-' },
+  desvinculacion: { codigo: 'RRH-FOR-VAR-004', folioPrefijo: 'RRH-DES-' },
 };
 export const MAESTRO_SOLICITUDES_CODIGO = 'RRH-FOR-SOL-001';
 
@@ -85,6 +87,13 @@ export function detalleLineas(sol: any): [string, string][] {
         ['Nueva fecha de término', d.indefinido ? null : d.nueva_fecha_termino],
         ['Nuevo plazo', d.indefinido ? null : d.nuevo_plazo],
         ['Motivo', d.motivo],
+      ];
+      break;
+    case 'desvinculacion':
+      pares = [
+        ['Causal', d.causal],
+        ['Fecha de desvinculación', d.fecha_desvinculacion],
+        ['Observaciones', d.observaciones],
       ];
       break;
     default:

@@ -47,7 +47,9 @@ export const Data = {
 
   async trabajadores() {
     const { data, error } = await supabase
-      .from('trabajadores').select('id, rut, nombre, cargo, sueldo_liquido, centro_costo_id').eq('activo', true).order('nombre');
+      .from('trabajadores')
+      .select('id, rut, nombre, cargo, sueldo_liquido, centro_costo_id, tipo_contrato, requiere_anexo_renovacion')
+      .eq('activo', true).order('nombre');
     if (error) throw error;
     return data || [];
   },
@@ -66,7 +68,7 @@ export const Data = {
   async todosTrabajadores() {
     const { data, error } = await supabase
       .from('trabajadores')
-      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido')
+      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
       .order('nombre');
     if (error) throw error;
     return data || [];
@@ -76,7 +78,7 @@ export const Data = {
   async trabajadorPorId(id) {
     const { data, error } = await supabase
       .from('trabajadores')
-      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido')
+      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
       .eq('id', id).single();
     if (error) throw error;
     return data;
@@ -266,6 +268,31 @@ export const Data = {
     } catch (e) {
       console.warn('[notificar] excepción:', e.message);
       return null;
+    }
+  },
+
+  /**
+   * Dispara las notificaciones nuevas de cierre ("RRHH cerró su parte" /
+   * "homologación autorizada") -- Edge Function `notificar`. Igual que
+   * notificar(), es fire-and-forget: si falla, se loguea pero no rompe la UX.
+   * Acepta solicitud_id O contratacion_id porque en ingreso el cierre es por
+   * CONTRATACIÓN (puede haber varias personas por solicitud, cada una con su
+   * propio Contrato de Trabajo y su propia homologación), no por solicitud
+   * completa; en el resto de los tipos (traslado y los 5 sin documento
+   * propio) es siempre por solicitud_id.
+   *   type: 'rrhh_cerrado' | 'homologacion_autorizada'
+   */
+  async notificarEvento(type, { solicitud_id, contratacion_id } = {}) {
+    try {
+      const body = { type };
+      if (solicitud_id) body.solicitud_id = solicitud_id;
+      if (contratacion_id) body.contratacion_id = contratacion_id;
+      const { data, error } = await supabase.functions.invoke('Notificar', { body });
+      if (error) console.warn('[notificar] EF error:', error.message);
+      else if (data?.error) console.warn('[notificar] devolvió:', data.error);
+      return data;
+    } catch (e) {
+      console.warn('[notificar] excepción:', e.message);
     }
   },
 
@@ -503,6 +530,89 @@ export const Data = {
     const { error } = await supabase.from('contrataciones')
       .update({ homologacion_aprobada_at: new Date().toISOString(), homologacion_aprobada_por: userId })
       .eq('id', contratacionId);
+    if (error) throw error;
+  },
+
+  // ---------- SLA de RRHH para los 6 tipos de solicitud ----------
+
+  /**
+   * Solicitudes aprobadas de los tipos dados, con sus aprobaciones (para
+   * calcular cuándo terminó de aprobarse -- inicio del plazo de RRHH en
+   * los dashboards de SLA). A diferencia de solicitudesIngresoAprobadas(),
+   * sirve para cualquier combinación de tipos.
+   */
+  async solicitudesAprobadasPorTipo(tipos) {
+    const { data: sols, error } = await supabase
+      .from('solicitudes').select(SOL_FIELDS + ', solicitante_id')
+      .in('tipo', tipos).eq('estado', 'aprobada')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const aprs = await this.aprobacionesDe((sols || []).map(s => s.id));
+    const byId = new Map();
+    aprs.forEach(a => { if (!byId.has(a.solicitud_id)) byId.set(a.solicitud_id, []); byId.get(a.solicitud_id).push(a); });
+    return (sols || []).map(s => ({ ...s, aprobaciones: (byId.get(s.id) || []).sort((a, b) => a.orden - b.orden) }));
+  },
+
+  /**
+   * Marca como procesada por RRHH una solicitud de aumento de sueldo / bono
+   * / cambio de cargo / renovación (fin de su plazo de SLA -- estos 4 tipos
+   * no tienen un evento propio como el Contrato de Trabajo de ingreso o los
+   * documentos de traslado).
+   */
+  async marcarProcesadoRRHH(solicitudId, userId) {
+    const { error } = await supabase.from('solicitudes')
+      .update({ procesado_rrhh_at: new Date().toISOString(), procesado_rrhh_por: userId })
+      .eq('id', solicitudId);
+    if (error) throw error;
+  },
+
+  // ---------- Traslado: documentos para homologación ----------
+
+  /** Mapa solicitud_id -> [documentos_traslado], solo para las solicitudes pedidas */
+  async documentosTrasladoPorSolicitud(solicitudIds) {
+    const u = [...new Set(solicitudIds.filter(Boolean))];
+    if (!u.length) return new Map();
+    const { data, error } = await supabase
+      .from('documentos_traslado').select('*').in('solicitud_id', u).order('created_at');
+    if (error) throw error;
+    const map = new Map();
+    (data || []).forEach(d => { if (!map.has(d.solicitud_id)) map.set(d.solicitud_id, []); map.get(d.solicitud_id).push(d); });
+    return map;
+  },
+
+  /** Sube un archivo al bucket 'traslado-documentos' y registra/reemplaza su metadata */
+  async subirDocumentoTraslado(solicitudId, checklistItemId, file, userId) {
+    const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+    const path = `${solicitudId}/${checklistItemId}/${Date.now()}_${safeName}`;
+    const up = await supabase.storage.from('traslado-documentos').upload(path, file, { upsert: false });
+    if (up.error) throw up.error;
+    const { data, error } = await supabase.from('documentos_traslado')
+      .upsert({
+        solicitud_id: solicitudId, checklist_item_id: checklistItemId,
+        storage_path: path, nombre_archivo: file.name, tamano_bytes: file.size, subido_por: userId
+      }, { onConflict: 'solicitud_id,checklist_item_id' })
+      .select('id').single();
+    if (error) throw error;
+    return data.id;
+  },
+
+  async urlDocumentoTraslado(storagePath, expiresIn = 300) {
+    const { data, error } = await supabase.storage
+      .from('traslado-documentos').createSignedUrl(storagePath, expiresIn);
+    if (error) throw error;
+    return data.signedUrl;
+  },
+
+  /**
+   * Autoriza el ingreso a obra de un trabajador trasladado (fin del plazo
+   * de homologación de un traslado). Solo puede hacerlo el prevencionista
+   * asignado al centro de costo DESTINO de la solicitud (RLS lo valida,
+   * ver migración 0012); botón "Autorizar ingreso a obra" en Homologación SST.
+   */
+  async autorizarIngresoObraTraslado(solicitudId, userId) {
+    const { error } = await supabase.from('solicitudes')
+      .update({ homologacion_traslado_aprobada_at: new Date().toISOString(), homologacion_traslado_aprobada_por: userId })
+      .eq('id', solicitudId);
     if (error) throw error;
   }
 };

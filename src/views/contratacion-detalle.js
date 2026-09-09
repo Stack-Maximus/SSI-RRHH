@@ -148,9 +148,16 @@ export async function renderContratacionDetalle(container, contratacionId, backV
     inp.addEventListener('change', async () => {
       const file = inp.files?.[0];
       if (!file) return;
+      // Si este ítem es el Contrato de Trabajo y todavía no estaba subido,
+      // esta subida es justo el evento que cierra el plazo de RRHH (arranca
+      // el de homologación) -- se detecta ANTES de subir, para no confundir
+      // "primera vez" con un simple reemplazo del mismo documento.
+      const item = checklist.find(c => c.id === inp.dataset.item);
+      const esPrimerContrato = item?.codigo === 'contrato_trabajo' && !docPorItem.has(inp.dataset.item);
       try {
         await Data.subirDocumentoContratacion(contratacionId, inp.dataset.item, file, state.user.id);
         Toast.success('Documento subido', file.name);
+        if (esPrimerContrato) Data.notificarEvento('rrhh_cerrado', { contratacion_id: contratacionId }); // fire-and-forget
         renderContratacionDetalle(container, contratacionId, backView);
       } catch (e) {
         console.error('[contratacion-detalle] subir', e);
@@ -226,7 +233,11 @@ export async function renderContratacionDetalle(container, contratacionId, backV
           nombre: c.nombre_candidato,
           cargo: sol.detalle?.cargo || null,
           centro_costo_id: sol.centro_origen_id,
-          sueldo_liquido: sol.detalle?.sueldo_liquido ?? null
+          sueldo_liquido: sol.detalle?.sueldo_liquido ?? null,
+          // Copia el tipo de contrato elegido en la solicitud de ingreso al
+          // maestro del trabajador (migración 0013) -- si queda en "Obra o
+          // Faena", el trigger de la BD prende requiere_anexo_renovacion solo.
+          tipo_contrato: sol.detalle?.tipo_contrato || null
         });
         Toast.success('Trabajador contratado', c.nombre_candidato);
         renderContratacionDetalle(container, contratacionId, backView);

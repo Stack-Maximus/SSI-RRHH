@@ -11,6 +11,7 @@ import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
 import { pesos, fechaCorta } from '../ui/solicitud-format.js';
 import { renderTrabajadorPerfil } from './trabajador-perfil.js';
+import { TIPOS_CONTRATO } from '../config.js';
 
 let trabajadores = [], centros = [];
 let porRut = new Map();          // rut normalizado -> trabajador
@@ -45,6 +46,19 @@ const parseBool = (v) => {
   if (v == null || v === '') return false;
   const s = String(v).trim().toLowerCase();
   return s === 'si' || s === 'sí' || s === 'true' || s === '1' || s === 'x';
+};
+// Acepta el valor tal cual está en TIPOS_CONTRATO sin importar mayúsculas ni
+// espacios extra; si no calza con ninguno de los 3, devuelve undefined
+// (distinto de null: "no reconocido", no "vacío a propósito") para que la
+// fila se pueda marcar con advertencia en vez de perder el dato en silencio
+// -- la columna tiene un check constraint en la BD, así que un valor
+// inventado haría fallar el upsert completo si se dejara pasar.
+const normTexto = (v) => String(v ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+const parseTipoContrato = (v) => {
+  if (v == null || String(v).trim() === '') return null;
+  const n = normTexto(v);
+  const match = TIPOS_CONTRATO.find(t => normTexto(t) === n);
+  return match ?? undefined;
 };
 
 // normaliza encabezados: minúsculas, sin acentos, espacios simples
@@ -81,11 +95,11 @@ export async function renderTrabajadores(container) {
       </div>
     </div>
     <p class="hint">La planilla debe seguir el formato de la plantilla maestra. Se cargan todos los trabajadores: los existentes se actualizan por RUT y los nuevos se crean.
-      La fecha de término de contrato y "Indefinido" también se pueden editar acá mismo, fila por fila.</p>
+      El tipo de contrato, la fecha de término de contrato e "Indefinido" también se pueden editar acá mismo, fila por fila.</p>
     <div id="import-zone"></div>
     <div class="table-wrap" style="margin-top:14px;">
       <table class="data-table">
-        <thead><tr><th>RUT</th><th>Nombre</th><th>Cargo</th><th>Centro</th><th>Fecha término contrato</th><th>Indefinido</th><th></th></tr></thead>
+        <thead><tr><th>RUT</th><th>Nombre</th><th>Cargo</th><th>Centro</th><th>Tipo de contrato</th><th>Fecha término contrato</th><th>Indefinido</th><th>Anexo renovación</th><th></th></tr></thead>
         <tbody id="trab-tbody"></tbody>
       </table>
     </div>`;
@@ -99,6 +113,11 @@ export async function renderTrabajadores(container) {
   pintarTabla(container);
 }
 
+function optsContratoTabla(sel) {
+  return '<option value="">—</option>' +
+    TIPOS_CONTRATO.map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join('');
+}
+
 function pintarTabla(container) {
   const tbody = container.querySelector('#trab-tbody');
   tbody.innerHTML = trabajadores.map(t => `
@@ -107,8 +126,13 @@ function pintarTabla(container) {
       <td>${escapeHtml(t.nombre)}</td>
       <td>${escapeHtml(t.cargo || '—')}</td>
       <td>${escapeHtml(idToCentro.get(t.centro_costo_id)?.nombre || '—')}</td>
+      <td><select class="t-input" data-field="tipo_contrato">${optsContratoTabla(t.tipo_contrato)}</select></td>
       <td><input type="date" class="t-input" data-field="fecha_termino_contrato" value="${t.fecha_termino_contrato || ''}" ${t.contrato_indefinido ? 'disabled' : ''}></td>
       <td class="u-center"><input type="checkbox" class="t-input" data-field="contrato_indefinido" ${t.contrato_indefinido ? 'checked' : ''}></td>
+      <td class="u-center" title="Se prende solo al fijar Obra o Faena y se apaga solo al aprobarse una Renovación para este trabajador. Bloquea crear traslados mientras esté prendido.">
+        <input type="checkbox" class="t-input" data-field="requiere_anexo_renovacion" ${t.requiere_anexo_renovacion ? 'checked' : ''}>
+        ${t.requiere_anexo_renovacion ? '<span class="badge badge-danger">Bloquea traslado</span>' : ''}
+      </td>
       <td><button class="link-btn" data-perfil="${t.id}">Ver perfil ▸</button></td>
     </tr>`).join('');
 
@@ -125,6 +149,12 @@ function pintarTabla(container) {
         await Data.actualizarTrabajador(id, patch);
         const t = trabajadores.find(x => x.id === id);
         Object.assign(t, patch);
+        // tipo_contrato dispara un trigger en la BD (marcar_requiere_anexo_renovacion,
+        // migración 0013) que puede prender requiere_anexo_renovacion solo -- se
+        // recarga esa fila para reflejar el flag actualizado sin esperar a un refresh completo.
+        if (field === 'tipo_contrato') {
+          try { Object.assign(t, await Data.trabajadorPorId(id)); } catch { /* se mantiene lo que ya había */ }
+        }
         Toast.success('Guardado', '');
         pintarTabla(container);
       } catch (e) {
@@ -139,17 +169,17 @@ function pintarTabla(container) {
   });
 }
 
-const HEADERS = ['RUT', 'Nombre Completo', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Sueldo Líquido Pactado', 'Fecha Término Contrato', 'Contrato Indefinido'];
+const HEADERS = ['RUT', 'Nombre Completo', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Sueldo Líquido Pactado', 'Tipo de Contrato', 'Fecha Término Contrato', 'Contrato Indefinido'];
 
 function descargarPlantilla() {
   const c0 = centros[0];
   const aoa = [
     HEADERS,
-    ['12.345.678-9', 'Juan Pérez González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo ?? '10', c0?.nombre ?? '', 650000, '2027-03-31', 'No'],
-    ['98.765.432-1', 'María Soto Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000, '', 'Sí']
+    ['12.345.678-9', 'Juan Pérez González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo ?? '10', c0?.nombre ?? '', 650000, 'Obra o Faena', '2027-03-31', 'No'],
+    ['98.765.432-1', 'María Soto Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000, 'Indefinido', '', 'Sí']
   ];
   const wsT = XLSX.utils.aoa_to_sheet(aoa);
-  wsT['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 20 }, { wch: 18 }];
+  wsT['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 16 }, { wch: 20 }, { wch: 18 }];
 
   const inst = [
     ['PLANTILLA MAESTRA DE TRABAJADORES · SSI-RRHH Metalium'],
@@ -159,6 +189,7 @@ function descargarPlantilla() {
     ['Antes de aplicar, la app te muestra trabajador por trabajador qué cambia.'],
     ['El "Código Centro Costo" debe coincidir con uno de la lista de abajo.'],
     ['"Sueldo Líquido Pactado": número, sin $ ni puntos (ej: 650000).'],
+    ['"Tipo de Contrato": Plazo Fijo / Obra o Faena / Indefinido (déjalo vacío si no se conoce). Si queda en "Obra o Faena", el sistema exige un anexo de renovación antes de poder trasladar a ese trabajador.'],
     ['"Fecha Término Contrato": formato AAAA-MM-DD. Se dejará vacía si el contrato es indefinido.'],
     ['"Contrato Indefinido": Sí / No. Si es "Sí", el trabajador no entra al aviso de próximos vencimientos.'],
     [],
@@ -185,6 +216,7 @@ function exportar() {
     'Código Centro Costo': idToCentro.get(t.centro_costo_id)?.codigo ?? '',
     'Nombre Centro Costo': idToCentro.get(t.centro_costo_id)?.nombre ?? '',
     'Sueldo Líquido Pactado': t.sueldo_liquido ?? '',
+    'Tipo de Contrato': t.tipo_contrato ?? '',
     'Fecha Término Contrato': t.fecha_termino_contrato ?? '',
     'Contrato Indefinido': t.contrato_indefinido ? 'Sí' : 'No'
   }));
@@ -221,6 +253,10 @@ async function importar(file, container) {
     if (!rut) continue; // fila sin RUT, se ignora
     const codigo = txt(pick(rn, 'codigo centro costo', 'codigo cc', 'codigo centro de costo'));
     const indefinido = parseBool(pick(rn, 'contrato indefinido', 'indefinido'));
+    const tipoContratoCrudo = pick(rn, 'tipo de contrato', 'tipo contrato');
+    const tipoContrato = parseTipoContrato(tipoContratoCrudo);
+    const tipoContratoInvalido = tipoContrato === undefined; // valor presente pero no reconocido
+    const prev = porRut.get(normRut(rut));
     const fila = {
       rut,
       nombre: txt(pick(rn, 'nombre completo', 'nombre')),
@@ -228,14 +264,21 @@ async function importar(file, container) {
       cargo: txt(pick(rn, 'cargo')),
       sueldo_liquido: parseMoney(pick(rn, 'sueldo liquido pactado', 'sueldo liquido', 'sueldo')),
       centro_costo_id: codigo ? (codigoToId.get(codigo) ?? null) : null,
+      // Si no se reconoce el valor, no se toca el tipo_contrato ya guardado -- se
+      // reenvía el mismo valor que ya tenía (en vez de omitir la clave) para que
+      // TODAS las filas del lote manden siempre las mismas columnas: así el
+      // upsert masivo nunca queda con una fila de forma distinta a las demás
+      // por culpa de un dato mal tipeado, sin importar el orden de las filas
+      // en la planilla ni si el trabajador es nuevo (prev == null) o existente.
+      tipo_contrato: tipoContratoInvalido ? (prev?.tipo_contrato ?? null) : tipoContrato,
       contrato_indefinido: indefinido,
       fecha_termino_contrato: indefinido ? null : parseFecha(pick(rn, 'fecha termino contrato', 'fecha de termino de contrato', 'fecha termino')),
       _codigo: codigo
     };
-    const prev = porRut.get(normRut(rut));
     const cambios = [];
     if (prev) {
       const cmp = (campo, label, fmt = (x) => x) => {
+        if (fila[campo] === undefined) return; // no viene en la planilla / no se reconoció -- no se compara ni se toca
         const a = prev[campo] ?? null, b = fila[campo] ?? null;
         if (String(a ?? '') !== String(b ?? '')) cambios.push(`${label}: ${fmt(a) || '—'} → ${fmt(b) || '—'}`);
       };
@@ -243,13 +286,18 @@ async function importar(file, container) {
       cmp('cargo', 'Cargo');
       cmp('profesion', 'Profesión');
       cmp('sueldo_liquido', 'Sueldo', pesos);
+      cmp('tipo_contrato', 'Tipo de contrato');
       cmp('fecha_termino_contrato', 'Fecha término', fechaCorta);
       cmp('contrato_indefinido', 'Indefinido', (v) => (v ? 'Sí' : 'No'));
       if (String(prev.centro_costo_id ?? '') !== String(fila.centro_costo_id ?? '')) {
         cambios.push(`Centro: ${idToCentro.get(prev.centro_costo_id)?.codigo || '—'} → ${fila._codigo || '—'}`);
       }
     }
-    items.push({ fila, estado: !prev ? 'nuevo' : (cambios.length ? 'modificado' : 'sin_cambios'), cambios, codigoInvalido: !!codigo && !codigoToId.has(codigo) });
+    items.push({
+      fila, estado: !prev ? 'nuevo' : (cambios.length ? 'modificado' : 'sin_cambios'), cambios,
+      codigoInvalido: !!codigo && !codigoToId.has(codigo),
+      tipoContratoInvalido
+    });
   }
 
   const nuevos = items.filter(i => i.estado === 'nuevo');
@@ -257,6 +305,7 @@ async function importar(file, container) {
   const iguales = items.filter(i => i.estado === 'sin_cambios');
   const aplicar = [...nuevos, ...modif];
   const conError = items.filter(i => i.codigoInvalido);
+  const conAvisoTipo = items.filter(i => i.tipoContratoInvalido);
 
   const badge = (e) => e === 'nuevo' ? '<span class="badge badge-success">Nuevo</span>'
     : e === 'modificado' ? '<span class="badge badge-warning">Modificado</span>'
@@ -267,7 +316,7 @@ async function importar(file, container) {
       <td class="mono">${escapeHtml(i.fila.rut)}</td>
       <td>${escapeHtml(i.fila.nombre || '—')}</td>
       <td>${badge(i.estado)}</td>
-      <td>${i.cambios.length ? escapeHtml(i.cambios.join(' · ')) : (i.estado === 'nuevo' ? 'Alta de trabajador' : '—')}${i.codigoInvalido ? ' <span class="badge badge-danger">código de centro inexistente</span>' : ''}</td>
+      <td>${i.cambios.length ? escapeHtml(i.cambios.join(' · ')) : (i.estado === 'nuevo' ? 'Alta de trabajador' : '—')}${i.codigoInvalido ? ' <span class="badge badge-danger">código de centro inexistente</span>' : ''}${i.tipoContratoInvalido ? ' <span class="badge badge-danger">tipo de contrato no reconocido, se deja como estaba</span>' : ''}</td>
     </tr>`).join('');
 
   zone.innerHTML = `
@@ -275,6 +324,7 @@ async function importar(file, container) {
       <span class="badge badge-success">${nuevos.length} nuevos</span>
       <span class="badge badge-warning">${modif.length} modificados</span>
       <span class="badge badge-neutral">${iguales.length} sin cambios</span>
+      ${conAvisoTipo.length ? `<span class="badge badge-danger">${conAvisoTipo.length} con tipo de contrato no reconocido</span>` : ''}
       ${conError.length ? `<span class="badge badge-danger">${conError.length} con código de centro inválido</span>` : ''}
     </div>
     <div class="table-wrap" style="margin:12px 0;max-height:460px;overflow:auto;">

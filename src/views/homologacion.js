@@ -1,10 +1,15 @@
 /**
- * Vista "Homologación SST" (prevencionista / admin) · bandeja de solo lectura
- * con las contrataciones en curso. De cada una se destacan primero los
- * documentos del checklist marcados como "requerido para homologación"
- * (Contrato + Cédula/Pasaporte) y, además, se puede abrir el resto del
- * expediente del trabajador (el resto del checklist de contratación) por si
- * se necesita revisar algún otro documento puntual.
+ * Vista "Homologación SST" (prevencionista / admin) · bandeja de solo
+ * lectura con los dos orígenes que puede homologar un prevencionista:
+ *
+ *   - Contrataciones de INGRESO de su centro de costo (checklist completo
+ *     de contratación, destacando Contrato de Trabajo + Cédula).
+ *   - Solicitudes de TRASLADO aprobadas hacia su centro de costo (checklist
+ *     fijo de 3 documentos: Contrato de Trabajo, Anexo de Contrato, Cédula).
+ *
+ * En ambos casos se puede "Autorizar ingreso a obra" una vez que los
+ * documentos están completos -- mismo botón, mismo criterio de auditoría
+ * (quién y cuándo), solo que actualiza una tabla distinta según el origen.
  */
 
 import { Data } from '../db/data.js';
@@ -12,14 +17,24 @@ import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
 import { fechaCorta } from '../ui/solicitud-format.js';
 import { estadoContratacionBadge, canalLabel, tipoTrabajadorLabel, checklistParaTipo } from '../ui/contratacion-format.js';
+import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
 import { state } from '../core/state.js';
 
 export async function renderHomologacion(container) {
   container.innerHTML = '<div class="view-loading">Cargando homologaciones...</div>';
 
-  let contrataciones, checklist;
+  let contrataciones, solTraslado, checklist, trabajadores, centros, docsTraslado;
   try {
-    [contrataciones, checklist] = await Promise.all([Data.listContrataciones(), Data.checklistDocumentos()]);
+    [contrataciones, solTraslado, checklist, centros] = await Promise.all([
+      Data.listContrataciones(),
+      Data.solicitudesAprobadasPorTipo(['traslado']),
+      Data.checklistDocumentos(),
+      Data.listCentrosAdmin()
+    ]);
+    [trabajadores, docsTraslado] = await Promise.all([
+      Data.trabajadoresPorId(solTraslado.map(s => s.trabajador_id)),
+      Data.documentosTrasladoPorSolicitud(solTraslado.map(s => s.id))
+    ]);
   } catch (e) {
     console.error('[homologacion]', e);
     Toast.error('Error', 'No se pudo cargar la homologación.');
@@ -27,72 +42,101 @@ export async function renderHomologacion(container) {
     return;
   }
 
-  const enCurso = contrataciones.filter(c => c.estado !== 'anulada');
+  const ctx = { contrataciones, solTraslado, checklist, trabajadores, centros, docsTraslado };
+  const enCursoIngreso = contrataciones.filter(c => c.estado !== 'anulada');
 
-  if (!enCurso.length) {
+  if (!enCursoIngreso.length && !solTraslado.length) {
     container.innerHTML = `<div class="empty-state">
       <div class="placeholder-icon">🦺</div>
-      <p>No hay contrataciones en curso todavía.</p>
+      <p>No hay contrataciones ni traslados en curso todavía.</p>
     </div>`;
     return;
   }
 
+  const items = [
+    ...enCursoIngreso.map(c => ({ tipo: 'ingreso', id: c.id, fecha: c.created_at, c })),
+    ...solTraslado.map(s => ({ tipo: 'traslado', id: s.id, fecha: s.created_at, s }))
+  ].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
   container.innerHTML = `
-    <p class="hint">Se destacan primero los documentos requeridos para homologación. El resto del expediente
+    <p class="hint">Se destacan primero los documentos requeridos para homologación. En ingreso, el resto del expediente
       del trabajador queda disponible para abrir por si necesitas revisar algún otro documento.</p>
     <div class="sol-grid" id="hom-grid"></div>`;
 
   const grid = container.querySelector('#hom-grid');
-  grid.innerHTML = enCurso.map(c => card(c)).join('');
+  grid.innerHTML = items.map(it => it.tipo === 'ingreso' ? cardIngreso(it.c) : cardTraslado(it.s, trabajadores, centros)).join('');
 
   grid.querySelectorAll('[data-ver]').forEach(btn => {
-    btn.addEventListener('click', () => verDetalle(container, btn.dataset.ver, contrataciones, checklist));
+    btn.addEventListener('click', () => {
+      const [tipo, id] = btn.dataset.ver.split(':');
+      if (tipo === 'ingreso') verDetalleIngreso(container, id, ctx);
+      else verDetalleTraslado(container, id, ctx);
+    });
   });
 }
 
-function card(c) {
+function cardIngreso(c) {
   return `
     <div class="sol-card">
       <div class="sol-card-top">
         <span class="sol-id">${escapeHtml(c.nombre_candidato)}</span>
         ${estadoContratacionBadge(c.estado)}
       </div>
-      <div class="sol-detalle muted">${canalLabel(c.canal)} · ${tipoTrabajadorLabel(c.tipo_trabajador)}</div>
-      <button class="link-btn" data-ver="${c.id}">Ver documentos ▸</button>
+      <div class="sol-detalle muted">➕ Ingreso · ${canalLabel(c.canal)} · ${tipoTrabajadorLabel(c.tipo_trabajador)}</div>
+      <button class="link-btn" data-ver="ingreso:${c.id}">Ver documentos ▸</button>
     </div>`;
 }
 
-async function verDetalle(container, contratacionId, contrataciones, checklist) {
+function cardTraslado(s, trabajadores, centros) {
+  const centrosMap = centros instanceof Map ? centros : new Map(centros.map(c => [c.id, c]));
+  const nombre = trabajadores.get(s.trabajador_id)?.nombre || 'Trabajador';
+  const badge = s.homologacion_traslado_aprobada_at
+    ? '<span class="badge badge-success">Autorizado</span>'
+    : '<span class="badge badge-warning">Pendiente</span>';
+  const origen = centrosMap.get(s.centro_origen_id)?.nombre || '—';
+  const destino = centrosMap.get(s.centro_destino_id)?.nombre || '—';
+  return `
+    <div class="sol-card">
+      <div class="sol-card-top">
+        <span class="sol-id">${escapeHtml(nombre)}</span>
+        ${badge}
+      </div>
+      <div class="sol-detalle muted">🔁 Traslado · ${escapeHtml(origen)} → ${escapeHtml(destino)}</div>
+      <button class="link-btn" data-ver="traslado:${s.id}">Ver documentos ▸</button>
+    </div>`;
+}
+
+function filaDoc(item, doc, notaExtra = '') {
+  return `
+    <div class="chk-row ${doc ? 'chk-ok' : ''}">
+      <div class="chk-info">
+        <div class="chk-nombre">${doc ? '✅' : '⬜'} ${escapeHtml(item.nombre)}${notaExtra}</div>
+        ${doc
+          ? `<div class="muted"><button class="link-btn" data-doc="${doc.storage_path}">${escapeHtml(doc.nombre_archivo)}</button> · subido ${fechaCorta(doc.created_at)}</div>`
+          : '<div class="muted">Aún no lo sube RRHH.</div>'}
+      </div>
+    </div>`;
+}
+
+async function verDetalleIngreso(container, contratacionId, ctx) {
   container.innerHTML = '<div class="view-loading">Cargando documentos...</div>';
-  const c = contrataciones.find(x => x.id === contratacionId);
+  const c = ctx.contrataciones.find(x => x.id === contratacionId);
   let documentos;
   try {
     documentos = await Data.documentosDeContratacion(contratacionId);
   } catch (e) {
-    console.error('[homologacion] detalle', e);
+    console.error('[homologacion] detalle ingreso', e);
     Toast.error('Error', 'No se pudieron cargar los documentos.');
     documentos = [];
   }
 
-  const todos = checklistParaTipo(checklist, c.tipo_trabajador);
+  const todos = checklistParaTipo(ctx.checklist, c.tipo_trabajador);
   const principales = todos.filter(i => i.requerido_homologacion);
   const otros = todos.filter(i => !i.requerido_homologacion);
   const docPorItem = new Map(documentos.map(d => [d.checklist_item_id, d]));
 
-  const fila = (item) => {
-    const doc = docPorItem.get(item.id);
-    const disparaSla = item.codigo === 'contrato_trabajo'
-      ? ' <span class="badge badge-info">Inicia el plazo de homologación</span>' : '';
-    return `
-      <div class="chk-row ${doc ? 'chk-ok' : ''}">
-        <div class="chk-info">
-          <div class="chk-nombre">${doc ? '✅' : '⬜'} ${escapeHtml(item.nombre)}${disparaSla}</div>
-          ${doc
-            ? `<div class="muted"><button class="link-btn" data-doc="${doc.storage_path}">${escapeHtml(doc.nombre_archivo)}</button> · subido ${fechaCorta(doc.created_at)}</div>`
-            : '<div class="muted">Aún no lo sube RRHH.</div>'}
-        </div>
-      </div>`;
-  };
+  const fila = (item) => filaDoc(item, docPorItem.get(item.id),
+    item.codigo === 'contrato_trabajo' ? ' <span class="badge badge-info">Inicia el plazo de homologación</span>' : '');
 
   const faltantesPrincipales = principales.filter(i => !docPorItem.has(i.id)).length;
   const autorizada = !!c.homologacion_aprobada_at;
@@ -152,11 +196,97 @@ async function verDetalle(container, contratacionId, contrataciones, checklist) 
       try {
         await Data.autorizarIngresoObra(c.id, state.user.id);
         Toast.success('Ingreso autorizado', `${c.nombre_candidato} ya puede ingresar a la obra.`);
+        Data.notificarEvento('homologacion_autorizada', { contratacion_id: c.id }); // fire-and-forget
         c.homologacion_aprobada_at = new Date().toISOString();
         c.homologacion_aprobada_por = state.user.id;
-        verDetalle(container, contratacionId, contrataciones, checklist);
+        verDetalleIngreso(container, contratacionId, ctx);
       } catch (e) {
-        console.error('[homologacion] autorizar', e);
+        console.error('[homologacion] autorizar ingreso', e);
+        Toast.error('Error', e.message || 'No se pudo autorizar el ingreso.');
+        btnAutorizar.disabled = false; btnAutorizar.textContent = 'Autorizar ingreso a obra';
+      }
+    });
+  }
+}
+
+async function verDetalleTraslado(container, solicitudId, ctx) {
+  container.innerHTML = '<div class="view-loading">Cargando documentos...</div>';
+  const s = ctx.solTraslado.find(x => x.id === solicitudId);
+  const centrosMap = new Map(ctx.centros.map(c => [c.id, c]));
+  const nombre = ctx.trabajadores.get(s.trabajador_id)?.nombre || 'Trabajador';
+
+  let documentos;
+  try {
+    const map = await Data.documentosTrasladoPorSolicitud([solicitudId]);
+    documentos = map.get(solicitudId) || [];
+    ctx.docsTraslado.set(solicitudId, documentos); // refresca el caché local de la bandeja
+  } catch (e) {
+    console.error('[homologacion] detalle traslado', e);
+    Toast.error('Error', 'No se pudieron cargar los documentos.');
+    documentos = [];
+  }
+
+  const prog = progresoDocumentosTraslado(ctx.checklist, documentos);
+  const fila = (item) => filaDoc(item, prog.docPorItem.get(item.id));
+
+  const autorizada = !!s.homologacion_traslado_aprobada_at;
+  const accionAutorizacion = autorizada
+    ? `<div class="card"><p class="hint">✅ Ingreso a obra autorizado el ${fechaCorta(s.homologacion_traslado_aprobada_at)}.</p></div>`
+    : `<div class="card">
+        <h3>Autorización de ingreso a obra</h3>
+        ${prog.faltantes.length > 0
+          ? `<p class="hint">⚠️ Aún ${prog.faltantes.length === 1 ? 'falta 1 documento' : `faltan ${prog.faltantes.length} documentos`}.</p>`
+          : '<p class="hint">Ya están los 3 documentos. Revísalos y, si todo está en regla, autoriza el ingreso.</p>'}
+        <button class="btn btn-primary" id="autorizar-ingreso">Autorizar ingreso a obra</button>
+      </div>`;
+
+  container.innerHTML = `
+    <button class="link-btn" id="volver">← Volver</button>
+    <div class="detalle-head">
+      <span class="sol-id">${escapeHtml(nombre)}</span>
+      ${autorizada ? '<span class="badge badge-success">Autorizado</span>' : '<span class="badge badge-warning">Pendiente</span>'}
+    </div>
+    <p class="hint">Traslado: ${escapeHtml(centrosMap.get(s.centro_origen_id)?.nombre || '—')} → ${escapeHtml(centrosMap.get(s.centro_destino_id)?.nombre || '—')}</p>
+    <div class="card">
+      <h3>Documentos para homologación</h3>
+      <p class="hint">Estos 3 documentos, una vez completos, inician el plazo de homologación.</p>
+      <div class="checklist-list">${prog.items.map(fila).join('')}</div>
+    </div>
+    ${accionAutorizacion}`;
+
+  container.querySelector('#volver').addEventListener('click', () => window.Router.go('homologacion'));
+  container.querySelectorAll('[data-doc]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        const url = await Data.urlDocumentoTraslado(btn.dataset.doc);
+        window.open(url, '_blank');
+      } catch (e) {
+        console.error('[homologacion] url traslado', e);
+        Toast.error('Error', 'No se pudo abrir el documento.');
+      }
+    });
+  });
+
+  const btnAutorizar = container.querySelector('#autorizar-ingreso');
+  if (btnAutorizar) {
+    btnAutorizar.addEventListener('click', async () => {
+      const ok = await Confirm.ask({
+        title: 'Autorizar ingreso a obra',
+        text: `¿Confirmas que ${nombre} queda autorizado para ingresar a la obra destino?`,
+        variant: 'primary',
+        confirmText: 'Autorizar'
+      });
+      if (!ok) return;
+      btnAutorizar.disabled = true; btnAutorizar.textContent = 'Autorizando...';
+      try {
+        await Data.autorizarIngresoObraTraslado(s.id, state.user.id);
+        Toast.success('Ingreso autorizado', `${nombre} ya puede ingresar a la obra.`);
+        Data.notificarEvento('homologacion_autorizada', { solicitud_id: s.id }); // fire-and-forget
+        s.homologacion_traslado_aprobada_at = new Date().toISOString();
+        s.homologacion_traslado_aprobada_por = state.user.id;
+        verDetalleTraslado(container, solicitudId, ctx);
+      } catch (e) {
+        console.error('[homologacion] autorizar traslado', e);
         Toast.error('Error', e.message || 'No se pudo autorizar el ingreso.');
         btnAutorizar.disabled = false; btnAutorizar.textContent = 'Autorizar ingreso a obra';
       }

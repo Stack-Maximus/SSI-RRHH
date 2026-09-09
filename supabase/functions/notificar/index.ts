@@ -17,6 +17,16 @@
 //                         SST con la documentación que RRHH vaya subiendo. Si el centro todavía no
 //                         tiene prevencionista asignado, no manda nada y devuelve `skipped: true`
 //                         (el frontend le avisa a RRHH en pantalla para que lo asigne).
+//   { type: 'rrhh_cerrado', solicitud_id | contratacion_id } -> RRHH terminó su parte de la
+//                         solicitud (sube el Contrato de Trabajo en ingreso, completa los 3
+//                         documentos en traslado, o hace clic en "Marcar como procesado" en el
+//                         resto de los tipos) -- avisa SOLO al solicitante original. En ingreso se
+//                         manda contratacion_id (puede haber varias personas por solicitud, cada
+//                         una con su propio cierre); en el resto, solicitud_id directo.
+//   { type: 'homologacion_autorizada', solicitud_id | contratacion_id } -> Prevención autorizó el
+//                         ingreso a obra (fin del plazo de homologación SST, solo aplica a ingreso
+//                         y traslado) -- avisa SOLO al solicitante original. Mismo criterio
+//                         contratacion_id/solicitud_id que 'rrhh_cerrado'.
 //
 //  Deploy:  supabase functions deploy notificar
 //  Secrets: GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_FROM_ADDRESS
@@ -90,6 +100,35 @@ Deno.serve(async (req) => {
       await graphSend(token, prev.email,
         `Nueva contratación para homologar — ${contrat.nombre_candidato}`,
         correoContratacionIniciada(prev.nombre ?? '', contrat, solIngreso, centro, appUrl));
+      return json({ ok: true, enviados: 1 });
+    }
+
+    // ---- RRHH cerró su parte -> avisa SOLO al solicitante original ----
+    // Van antes del resto porque aceptan contratacion_id (ingreso) además de
+    // solicitud_id, y resuelven su propia `sol` con resolverSolicitudYNombre.
+    if (type === 'rrhh_cerrado' || type === 'homologacion_autorizada') {
+      if (!solicitud_id && !contratacion_id) {
+        return json({ error: 'Falta solicitud_id o contratacion_id.' }, 400);
+      }
+      const { sol, nombre } = await resolverSolicitudYNombre(admin, { solicitud_id, contratacion_id });
+      if (!sol) return json({ error: 'Solicitud no encontrada.' }, 404);
+
+      const { data: s } = await admin
+        .from('perfiles').select('nombre, email, activo').eq('id', sol.solicitante_id).single();
+      if (!s?.email || s.activo === false) {
+        return json({ ok: true, skipped: true, reason: 'solicitante sin correo o inactivo' });
+      }
+
+      const token = await graphToken();
+      if (type === 'rrhh_cerrado') {
+        await graphSend(token, s.email,
+          `RRHH ya procesó tu solicitud ${sol.codigo}`,
+          correoRrhhCerrado(s.nombre ?? '', sol, nombre, appUrl));
+      } else {
+        await graphSend(token, s.email,
+          `${nombre || 'El trabajador'} ya puede ingresar a la obra — solicitud ${sol.codigo}`,
+          correoHomologacionAutorizada(s.nombre ?? '', sol, nombre, appUrl));
+      }
       return json({ ok: true, enviados: 1 });
     }
 
@@ -247,6 +286,41 @@ async function graphSend(token: string, to: string, subject: string, html: strin
   if (!res.ok) throw new Error('Graph sendMail: ' + (await res.text()));
 }
 
+const SOL_FIELDS =
+  'id, codigo, folio, tipo, estado, solicitante_id, trabajador_id, centro_origen_id, centro_destino_id, motivo, detalle, created_at';
+
+/**
+ * Resuelve la solicitud y el "nombre específico" a mostrar en el correo, a
+ * partir de contratacion_id O solicitud_id -- usado por 'rrhh_cerrado' y
+ * 'homologacion_autorizada'. En ingreso el cierre es por CONTRATACIÓN
+ * (puede haber varias personas en una misma solicitud, cada una con su
+ * propio candidato) así que el nombre sale de `contrataciones.nombre_candidato`;
+ * en el resto de los tipos (siempre con trabajador_id) sale de `trabajadores.nombre`.
+ */
+async function resolverSolicitudYNombre(
+  admin: ReturnType<typeof createClient>,
+  { solicitud_id, contratacion_id }: { solicitud_id?: string; contratacion_id?: string },
+) {
+  if (contratacion_id) {
+    const { data: contrat } = await admin
+      .from('contrataciones').select('id, solicitud_id, nombre_candidato')
+      .eq('id', contratacion_id).single();
+    if (!contrat) return { sol: null as any, nombre: null as string | null };
+    const { data: sol } = await admin.from('solicitudes').select(SOL_FIELDS).eq('id', contrat.solicitud_id).single();
+    return { sol: sol ?? null, nombre: contrat.nombre_candidato ?? null };
+  }
+  if (solicitud_id) {
+    const { data: sol } = await admin.from('solicitudes').select(SOL_FIELDS).eq('id', solicitud_id).single();
+    let nombre: string | null = null;
+    if (sol?.trabajador_id) {
+      const { data: t } = await admin.from('trabajadores').select('nombre').eq('id', sol.trabajador_id).single();
+      nombre = t?.nombre ?? null;
+    }
+    return { sol: sol ?? null, nombre };
+  }
+  return { sol: null as any, nombre: null as string | null };
+}
+
 // ---------- Plantillas de correo ----------
 // Estilos en línea (nada de <style> ni clases): es lo único que se ve bien
 // de forma pareja en Outlook/Exchange, que es el cliente real acá (Graph +
@@ -327,6 +401,20 @@ function correoAprobada(nombre: string, sol: any, appUrl: string) {
     <p style="margin:0">La solicitud quedó ${badge('Aprobada', VERDE_BG, VERDE_FG)}. Adjuntamos el comprobante en PDF con el detalle de lo aprobado.</p>
     ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
     ${boton(appUrl, 'Ver en SSI-RRHH')}`);
+}
+function correoRrhhCerrado(nombre: string, sol: any, nombreEspecifico: string | null, appUrl: string) {
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">RRHH ya terminó de procesar tu solicitud${nombreEspecifico ? ` de <b>${nombreEspecifico}</b>` : ''}.</p>
+    ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    ${boton(appUrl, 'Ver mis solicitudes')}`);
+}
+function correoHomologacionAutorizada(nombre: string, sol: any, nombreEspecifico: string | null, appUrl: string) {
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">El proceso de homologación de tu solicitud terminó: ${nombreEspecifico ? `<b>${nombreEspecifico}</b>` : 'el trabajador'} ya está autorizado para ingresar a la obra.</p>
+    ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    ${boton(appUrl, 'Ver mis solicitudes')}`);
 }
 function correoContratacionIniciada(nombre: string, contrat: any, sol: any, centro: any, appUrl: string) {
   const CANAL_LABELS: Record<string, string> = { recomendacion: 'Recomendación', reclutamiento_seleccion: 'Reclutamiento y selección' };

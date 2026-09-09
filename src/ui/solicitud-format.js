@@ -63,6 +63,8 @@ export function resumen(sol, centrosMap, trabMap) {
       return `${escapeHtml(trab())} · ${escapeHtml(d.cargo_actual || '—')} → ${escapeHtml(d.cargo_nuevo || '—')}`;
     case 'renovacion':
       return `${escapeHtml(trab())} · ${d.indefinido ? 'pasa a indefinido' : 'hasta ' + escapeHtml(d.nueva_fecha_termino || d.nuevo_plazo || '—')}`;
+    case 'desvinculacion':
+      return `${escapeHtml(trab())} · ${escapeHtml(d.causal || 'Desvinculación')}${d.fecha_desvinculacion ? ' · ' + escapeHtml(d.fecha_desvinculacion) : ''}`;
     default:
       return escapeHtml(trab());
   }
@@ -130,6 +132,13 @@ export function detallePares(sol) {
         ['Nueva fecha de término', d.indefinido ? null : d.nueva_fecha_termino],
         ['Nuevo plazo', d.indefinido ? null : d.nuevo_plazo],
         ['Motivo', d.motivo]
+      ];
+      break;
+    case 'desvinculacion':
+      pares = [
+        ['Causal', d.causal],
+        ['Fecha de desvinculación', d.fecha_desvinculacion],
+        ['Observaciones', d.observaciones]
       ];
       break;
     default:

@@ -11,18 +11,17 @@
 import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
-import { TIPOS_SOLICITUD_POR_ROL, TIPO_SOLICITUD_META } from '../config.js';
+import { TIPOS_SOLICITUD_POR_ROL, TIPO_SOLICITUD_META, TIPOS_CONTRATO, CAUSALES_DESVINCULACION } from '../config.js';
 
 let centros = [];
 let trabajadores = [];
 let cargos = [];
 
-const TIPOS_CONTRATO = ['Plazo Fijo', 'Obra o Faena', 'Indefinido'];
 const TURNOS = ['Diurno', 'Nocturno'];
 const TIPOS_BONO = ['Bono Trato', 'Bono Nocturno', 'Bono Producción', 'Bono Responsabilidad', 'Otro'];
 
 // Tipos que se crean vía crear_solicitud_cambio() (sobre un trabajador ya contratado)
-const TIPOS_CAMBIO = ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion'];
+const TIPOS_CAMBIO = ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'];
 
 const num = (v) => (v === '' || v == null ? null : Number(v));
 const txt = (v) => (v && String(v).trim() ? String(v).trim() : null);
@@ -35,6 +34,7 @@ function optsCentros(sel) {
 function optsContrato() { return TIPOS_CONTRATO.map(t => `<option>${t}</option>`).join(''); }
 function optsTurno()    { return TURNOS.map(t => `<option>${t}</option>`).join(''); }
 function optsBono()     { return TIPOS_BONO.map(t => `<option>${t}</option>`).join(''); }
+function optsCausales() { return CAUSALES_DESVINCULACION.map(t => `<option>${t}</option>`).join(''); }
 function optsCargos(sel) {
   return '<option value="">— Seleccionar cargo —</option>' +
     cargos.map(c => `<option ${c === sel ? 'selected' : ''}>${c}</option>`).join('');
@@ -123,8 +123,15 @@ function renderBody(tipo) {
     aumento_sueldo: bodyAumentoSueldo,
     bono: bodyBono,
     cambio_cargo: bodyCambioCargo,
-    renovacion: bodyRenovacion
+    renovacion: bodyRenovacion,
+    desvinculacion: bodyDesvinculacion
   };
+  // Cada tipo arranca con el botón habilitado -- traslado es el único que
+  // puede volver a deshabilitarlo (ver wireTraslado) si el trabajador
+  // elegido requiere un anexo de renovación al día.
+  const submitBtn = document.getElementById('sol-submit');
+  if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Crear solicitud'; }
+
   body.innerHTML = (builders[tipo] || bodyIngreso)();
   if (tipo === 'traslado') wireTraslado();
   if (tipo === 'aumento_sueldo') wireAumentoSueldo();
@@ -175,6 +182,7 @@ function bodyIngreso() {
 function bodyTraslado() {
   return `
     ${selectTrabajador('trab-select')}
+    <div id="trab-alerta-contrato" class="form-error" hidden></div>
     <div class="form-section"><div class="form-grid-2">
       <div class="form-field"><label class="form-label">Cargo</label>
         <select name="cargo" id="trab-cargo">${optsCargos('')}</select></div>
@@ -231,9 +239,11 @@ function bodyTraslado() {
 
 function wireTraslado() {
   const sel = document.getElementById('trab-select');
+  const alerta = document.getElementById('trab-alerta-contrato');
+  const submitBtn = document.getElementById('sol-submit');
   sel.addEventListener('change', () => {
     const t = trabajadores.find(x => x.id === sel.value);
-    if (!t) return;
+    if (!t) { alerta.hidden = true; submitBtn.disabled = false; return; }
     const selCargo = document.getElementById('trab-cargo');
     const cargoTrab = t.cargo || '';
     if (cargoTrab && !cargos.includes(cargoTrab)) {
@@ -242,6 +252,20 @@ function wireTraslado() {
     selCargo.value = cargoTrab;
     document.getElementById("trab-sueldo").value = t.sueldo_liquido ?? '';
     if (t.centro_costo_id) document.getElementById('trab-origen').value = t.centro_costo_id;
+
+    // Contrato "Obra o Faena" sin anexo de renovación al día: bloquea el
+    // traslado (a pedido explícito del cliente -- el sistema no deja
+    // avanzar hasta que se apruebe una Renovación para este trabajador).
+    // La base de datos también lo bloquea (trigger, migración 0013) por si
+    // este chequeo del cliente se salta por algún motivo.
+    if (t.requiere_anexo_renovacion) {
+      alerta.hidden = false;
+      alerta.textContent = `${t.nombre} tiene contrato "Obra o Faena" y no tiene un anexo de renovación al día. Antes de trasladarlo, un supervisor o el administrador debe crear una solicitud de Renovación para este trabajador y esperar a que se apruebe.`;
+      submitBtn.disabled = true;
+    } else {
+      alerta.hidden = true;
+      submitBtn.disabled = false;
+    }
   });
   const toggle = (chkId, fieldsId) => {
     const chk = document.getElementById(chkId);
@@ -360,6 +384,22 @@ function wireRenovacion() {
   });
 }
 
+/* ---------------- DESVINCULACIÓN ---------------- */
+function bodyDesvinculacion() {
+  return `
+    ${selectTrabajador('des-trab')}
+    <div class="form-section"><div class="form-grid-2">
+      <div class="form-field"><label class="form-label">Causal <span class="req">*</span></label>
+        <select name="causal" required>${optsCausales()}</select></div>
+      <div class="form-field"><label class="form-label">Fecha de desvinculación <span class="req">*</span></label>
+        <input type="date" name="fecha_desvinculacion" required></div>
+    </div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Observaciones</label>
+      <textarea name="observaciones" placeholder="Detalle adicional (opcional)"></textarea></div></div>
+  `;
+}
+
 /* ---------------- SUBMIT ---------------- */
 async function onSubmit(e, getTipo) {
   e.preventDefault();
@@ -375,7 +415,8 @@ async function onSubmit(e, getTipo) {
     aumento_sueldo: buildAumentoSueldo,
     bono: buildBono,
     cambio_cargo: buildCambioCargo,
-    renovacion: buildRenovacion
+    renovacion: buildRenovacion,
+    desvinculacion: buildDesvinculacion
   };
 
   let payload;
@@ -519,6 +560,21 @@ function buildRenovacion(f) {
       nueva_fecha_termino: indefinido ? null : (f.nueva_fecha_termino.value || null),
       nuevo_plazo: indefinido ? null : txt(f.nuevo_plazo.value),
       motivo: txt(f.motivo.value)
+    }
+  };
+}
+
+function buildDesvinculacion(f) {
+  if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
+  if (!f.causal.value) throw 'Selecciona la causal.';
+  if (!f.fecha_desvinculacion.value) throw 'Indica la fecha de desvinculación.';
+  return {
+    tipo: 'desvinculacion',
+    trabajador_id: f.trabajador_id.value,
+    detalle: {
+      causal: f.causal.value,
+      fecha_desvinculacion: f.fecha_desvinculacion.value,
+      observaciones: txt(f.observaciones.value)
     }
   };
 }

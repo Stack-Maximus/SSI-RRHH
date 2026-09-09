@@ -48,7 +48,7 @@ export const Data = {
   async trabajadores() {
     const { data, error } = await supabase
       .from('trabajadores')
-      .select('id, rut, nombre, cargo, sueldo_liquido, centro_costo_id, tipo_contrato, requiere_anexo_renovacion')
+      .select('id, rut, nombre, nombres, apellido_paterno, apellido_materno, cargo, sueldo_liquido, centro_costo_id, tipo_contrato, requiere_anexo_renovacion')
       .eq('activo', true).order('nombre');
     if (error) throw error;
     return data || [];
@@ -68,7 +68,7 @@ export const Data = {
   async todosTrabajadores() {
     const { data, error } = await supabase
       .from('trabajadores')
-      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
+      .select('id, rut, nombre, nombres, apellido_paterno, apellido_materno, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
       .order('nombre');
     if (error) throw error;
     return data || [];
@@ -78,7 +78,7 @@ export const Data = {
   async trabajadorPorId(id) {
     const { data, error } = await supabase
       .from('trabajadores')
-      .select('id, rut, nombre, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
+      .select('id, rut, nombre, nombres, apellido_paterno, apellido_materno, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
       .eq('id', id).single();
     if (error) throw error;
     return data;
@@ -430,7 +430,9 @@ export const Data = {
   async iniciarContratacion(payload, userId) {
     const { data, error } = await supabase.from('contrataciones').insert({
       solicitud_id: payload.solicitud_id,
-      nombre_candidato: payload.nombre_candidato,
+      nombres_candidato: payload.nombres_candidato,
+      apellido_paterno_candidato: payload.apellido_paterno_candidato,
+      apellido_materno_candidato: payload.apellido_materno_candidato || null,
       rut_candidato: payload.rut_candidato || null,
       telefono_candidato: payload.telefono_candidato || null,
       email_candidato: payload.email_candidato || null,

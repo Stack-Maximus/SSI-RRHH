@@ -36,7 +36,7 @@
     cambia ninguna Edge Function.
 15. Correr **`supabase/migrations/0013_tipo_contrato_y_desvinculacion.sql`** (agrega `trabajadores.tipo_contrato`
     y `requiere_anexo_renovacion`, los triggers que los mantienen al día, el bloqueo de traslado, y el valor
-    `'desvinculacion'` del enum `tipo_solicitud` -- ver sección 11).
+    `'desvinculacion'` del enum `tipo_solicitud` -- ver sección 10).
 16. Correr **`supabase/migrations/0014_desvinculacion_flujo.sql`** (activa `'desvinculacion'` en el RPC, las
     políticas de lectura, el folio y el resto del flujo -- **como paso aparte, después de 0013**, mismo
     motivo que el paso 1: Postgres no deja usar un valor de enum recién agregado dentro del mismo lote en que
@@ -50,8 +50,14 @@
     Las tres importan `supabase/functions/_shared/solicitud-detalle.ts`, que cambió (agregó Desvinculación) --
     aunque no editaste el archivo de la función en sí, el paquete que subiste la última vez quedó desactualizado
     y hay que repetir el deploy para que lo tome. `notificar` además necesita el redeploy por dos tipos de
-    correo nuevos (ver sección 11.3).
-18. `npm install && npm run build` (o `npm run dev` para probar local). No hay variables `.env` nuevas.
+    correo nuevos (ver sección 10, "Notificación al solicitante...").
+18. Correr **`supabase/migrations/0015_nombre_separado.sql`** (separa `trabajadores.nombre` y
+    `contrataciones.nombre_candidato` en 3 columnas -- Nombres / Apellido Paterno / Apellido Materno -- y de
+    paso separa automáticamente, una sola vez, a quienes ya estaban cargados -- ver el detalle en la sección
+    11). No necesita ir como paso aparte (no agrega ningún valor de enum, a diferencia de 0001/0005/0014) y no
+    agrega ni cambia ninguna Edge Function -- pero sí conviene, después de correrla, revisar en **Trabajadores**
+    cómo quedaron separados los nombres de varias palabras (la sección 11 explica por qué y qué mirar).
+19. `npm install && npm run build` (o `npm run dev` para probar local). No hay variables `.env` nuevas.
 
 **Importante — descomprimir el zip no despliega nada solo.** El zip son los archivos del proyecto; para
 que un cambio quede activo hay que llevarlo a cada destino que le corresponda, y son **tres destinos
@@ -967,7 +973,7 @@ la llegada del trabajador a la obra). Un par de detalles de implementación, por
   encaje. Si tu área legal necesita las causales exactas del artículo correspondiente (Art. 159/160/161),
   cambio la lista fácil.
 - No agregué un aviso a RRHH específicamente en el momento "Autorizar ingreso a obra" -- ver "Correo a RRHH
-  cuando se autoriza un ingreso a obra" en la sección 11 (Pendiente), que dejo actualizada con el estado real
+  cuando se autoriza un ingreso a obra" en la sección 12 (Pendiente), que dejo actualizada con el estado real
   después de esta entrega.
 
 **Verificación hecha antes de esta entrega:** además de releer cada pieza (migraciones, RLS, trigger,
@@ -1003,7 +1009,99 @@ mismo conviene partir siempre de "Descargar maestro (Excel)" en vez de armar el 
 quieres actualizar otra cosa (sueldo, cargo, etc.) -- así nunca se te olvida completar una columna y terminas
 borrando sin querer un dato que ya tenías cargado.
 
-## 11. Pendiente / sugerido para después
+## 11. Separar el nombre en Nombres / Apellido Paterno / Apellido Materno
+
+Pediste que el importador de Trabajadores separe el nombre en columnas distintas (Nombres / Apellido Paterno /
+Apellido Materno) en vez de una sola columna de texto libre. Te consulté qué tan a fondo debía llegar el
+cambio y qué hacer con los trabajadores y candidatos que ya estaban cargados con el nombre completo junto, y
+elegiste las dos opciones más completas: **guardar las 3 partes por separado en toda la app** (no solo en el
+importador) y **separar automáticamente, lo mejor posible, a quienes ya existían** -- así quedó.
+
+**Diseño (por qué quedó así, no toqué ninguna pantalla de solo lectura).** `trabajadores.nombre` y
+`contrataciones.nombre_candidato` (el nombre completo) **no desaparecieron ni cambiaron de significado** --
+siguen siendo exactamente lo mismo de siempre, y en casi 30 lugares de la app se siguen leyendo tal cual:
+selectores de trabajador (Traslado, Aumento de sueldo, Bono, Cambio de cargo, Renovación, Desvinculación),
+comprobantes y el Excel del maestro de solicitudes, el PDF de comprobante y el del maestro, los 5 correos que
+manda la Edge Function `notificar`, los 3 dashboards (RRHH, Prevención, admin), Homologación SST y el Perfil
+del trabajador. Ninguno de esos lugares se tocó, y **`notificar`, `comprobante-pdf` y `maestro-pdf` no
+necesitaron ningún cambio ni redeploy** -- porque en vez de repartir la separación por todos esos lugares (con
+el riesgo de que alguno quedara mostrando solo un nombre de pila, por ejemplo, en un correo o un PDF), la
+migración `0015_nombre_separado.sql` agrega las 3 columnas nuevas (`nombres` / `apellido_paterno` /
+`apellido_materno` en `trabajadores`; `nombres_candidato` / `apellido_paterno_candidato` /
+`apellido_materno_candidato` en `contrataciones`) y un trigger nuevo en cada tabla que arma el nombre completo
+solo, automáticamente, cada vez que se guarda cualquiera de las 3 partes -- el resto de la app sigue leyendo
+el nombre completo de siempre, sin enterarse de que por dentro ahora se arma distinto. Si algún camino
+todavía no manda las 3 partes (no debería quedar ninguno después de esta entrega, pero por si acaso), el
+trigger no toca el nombre completo y lo deja tal cual llegó -- para que nada se rompa ni quede en blanco por
+una fila que no venga por ese camino.
+
+**Dónde pediste los 3 campos separados, y quedaron así:**
+
+- **Trabajadores** (el maestro): la tabla ahora tiene 3 columnas editables -- Nombres / Apellido Paterno /
+  Apellido Materno -- en vez de una. Se guardan igual que ya pasaba con Tipo de Contrato, Fecha de término e
+  Indefinido: cada campo se guarda solo, apenas lo editas, sin un botón "Guardar" aparte.
+- **Plantilla y "Descargar maestro (Excel)"**: las mismas 3 columnas, en vez de una sola "Nombre".
+- **El importador de Excel** (el pedido original): acepta las 3 columnas separadas. Si una planilla **no**
+  las trae, pero sí trae una columna "Nombre completo" o "Nombre" (formato antiguo), la separa automático con
+  la misma convención del punto siguiente -- para que una planilla vieja se pueda seguir subiendo sin tener
+  que rehacerla primero. La vista previa (antes de aplicar la carga) muestra siempre el nombre ya armado, y el
+  resumen de cambios ahora distingue si lo que cambió fue el nombre, el apellido paterno o el materno, en vez
+  de mostrar todo el nombre como "un solo cambio".
+- **Contratación → "Iniciar contratación"**: el formulario para dar de alta a un candidato también pide los
+  3 campos por separado, en vez del "Nombre completo" de antes.
+- **Contratación → detalle del candidato**: los mismos 3 campos, editables mientras la contratación no esté
+  cerrada. Al **"Marcar como contratado"**, las 3 partes del candidato pasan tal cual al trabajador nuevo (o
+  al que ya exista con ese RUT) -- la base arma su nombre completo sola, con el mismo trigger de Trabajadores.
+
+**Convención usada para separar automático (candidatos y trabajadores que ya existían, y planillas en formato
+antiguo).** Es una aproximación -- no hay forma de adivinarlo perfecto solo con el texto -- pensada para el
+caso más común en Chile (nombre(s) + apellido paterno + apellido materno): la **última palabra** del nombre
+completo se toma como apellido materno, la **anterior** como apellido paterno, y **todo lo demás** como
+nombres. Nombres de una sola palabra quedan con los dos apellidos vacíos; de dos palabras, la primera se
+asume nombre y la segunda apellido paterno (queda el materno vacío). Se aplicó:
+
+- **Una sola vez, automático**, a todos los trabajadores y candidatos que ya existían al correr la migración
+  0015 (no vuelve a tocar una fila que ya tenga alguna de las 3 partes cargada, así que es seguro de correr
+  más de una vez sin pisar nada).
+- **En el importador**, solo cuando una fila trae "Nombre completo"/"Nombre" pero ninguna de las 3 columnas
+  nuevas (ver arriba).
+
+**Como es una suposición, conviene revisar los casos dudosos a mano después de correr la migración** --
+sobre todo nombres compuestos ("María José"), apellidos con "de la"/"de los"/"von", o nombres de 4 o más
+palabras donde no es obvio dónde separa. La forma más simple de revisarlos: en **Trabajadores**, ordenar o
+recorrer la tabla y corregir los que se vean raros en las 3 columnas nuevas -- es edición directa, fila por
+fila, no hace falta volver a importar nada.
+
+**Qué NO cambió (mismo criterio que ya vengo usando, no re-explico cada vez).** Lo que ya funcionaba con
+`trabajadorPorId`, `todosTrabajadores`, `actualizarTrabajador`, `upsertTrabajadores`, `contratacionPorId` y
+similares no necesitó tocarse -- son funciones genéricas (reciben el objeto que les mandas y lo guardan tal
+cual, o piden todas las columnas con `select('*')`), así que recogieron las columnas nuevas solas. Y, como en
+el importador de Tipo de Contrato (sección 10), si una planilla no trae ninguna de las columnas de nombre
+(ni las 3 nuevas ni la antigua), esos campos quedan vacíos -- mismo comportamiento de siempre para Cargo,
+Profesión, etc., por eso sigue siendo buena idea partir de "Descargar maestro (Excel)" en vez de armar el
+archivo desde cero.
+
+**Decisión que tomé y queda abierta para ajustar:** en los 2 formularios nuevos (Iniciar contratación y el
+detalle del candidato), dejé **Nombres y Apellido Paterno obligatorios, Apellido Materno opcional** -- es
+común no usarlo o no tenerlo. Si prefieres exigir los 3 campos siempre, es un cambio chico.
+
+**Verificación hecha antes de esta entrega:** la función que separa el nombre automático (la misma convención
+que usa la migración, reimplementada en JavaScript para el importador) la probé aparte con 16 casos sueltos
+(nombres de 1, 2, 3, 4 y 5 palabras, espacios de más, vacío, `null`, y que separar-y-volver-a-juntar reproduzca
+el nombre original) -- los 16 pasaron. Aparte, con un navegador real controlado por script (Playwright, mismo
+método que vengo usando), probé de punta a punta: en Trabajadores, que las 3 columnas se vean y se editen bien
+-- incluyendo una fila a propósito sin separar todavía (partes en blanco, para confirmar que no revienta la
+tabla) --, que importar una planilla con una fila que solo cambia el apellido materno lo detecte como el único
+cambio, que una fila nueva con las 3 columnas separadas y otra con formato antiguo ("Nombre completo") se
+vean correctas en la vista previa y que, al aplicar la carga, el envío final a la base traiga las 3 partes
+correctas (y ya no una columna "nombre" combinada); en Contratación, que el formulario "Iniciar contratación"
+pida los 3 campos, bloquee la creación si falta el apellido paterno, y mande el payload correcto al crear; y
+en el detalle del candidato, que los 3 campos se precarguen bien, que guardar bloquee si falta un campo
+obligatorio pero no si solo falta el materno (opcional), y que "Marcar como contratado" mande las 3 partes al
+trabajador nuevo. 46 verificaciones en total, todas pasaron, cero errores de consola del navegador. `npm run
+build` sigue compilando limpio.
+
+## 12. Pendiente / sugerido para después
 
 - No agregué borrado de documentos ya subidos (solo "reemplazar"); si necesitas poder sacar uno sin
   reemplazarlo, lo agrego.

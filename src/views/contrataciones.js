@@ -84,8 +84,14 @@ function cardSolicitud(s, contrataciones, centrosMap, perfiles) {
 function formIniciar(solicitudId) {
   return `
     <div class="form-grid-2">
-      <div class="form-field"><label class="form-label">Nombre completo <span class="req">*</span></label>
-        <input type="text" data-f="nombre" placeholder="Nombre y apellidos"></div>
+      <div class="form-field"><label class="form-label">Nombres <span class="req">*</span></label>
+        <input type="text" data-f="nombres" placeholder="Juan"></div>
+      <div class="form-field"><label class="form-label">Apellido paterno <span class="req">*</span></label>
+        <input type="text" data-f="apellido_paterno" placeholder="Pérez"></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="form-field"><label class="form-label">Apellido materno</label>
+        <input type="text" data-f="apellido_materno" placeholder="González"></div>
       <div class="form-field"><label class="form-label">RUT</label>
         <input type="text" data-f="rut" placeholder="12.345.678-9"></div>
     </div>
@@ -134,15 +140,23 @@ function wireCards(container, solicitudes, centrosMap) {
 
 async function crearContratacion(formEl, solicitudId, container) {
   const val = (f) => formEl.querySelector(`[data-f="${f}"]`).value.trim();
-  const nombre = val('nombre');
-  if (!nombre) { Toast.warning('Falta el nombre', 'Indica el nombre del candidato.'); return; }
+  const nombres = val('nombres');
+  const apellidoPaterno = val('apellido_paterno');
+  const apellidoMaterno = val('apellido_materno');
+  if (!nombres || !apellidoPaterno) {
+    Toast.warning('Falta el nombre', 'Indica al menos los nombres y el apellido paterno del candidato.');
+    return;
+  }
+  const nombreCompleto = [nombres, apellidoPaterno, apellidoMaterno].filter(Boolean).join(' ');
 
   const btn = formEl.querySelector('[data-crear]');
   btn.disabled = true; btn.textContent = 'Creando...';
   try {
     const contrat = await Data.iniciarContratacion({
       solicitud_id: solicitudId,
-      nombre_candidato: nombre,
+      nombres_candidato: nombres,
+      apellido_paterno_candidato: apellidoPaterno,
+      apellido_materno_candidato: apellidoMaterno || null,
       rut_candidato: val('rut') || null,
       telefono_candidato: val('telefono') || null,
       email_candidato: val('email') || null,
@@ -154,7 +168,7 @@ async function crearContratacion(formEl, solicitudId, container) {
     if (notif?.skipped) {
       Toast.warning('Contratación iniciada', 'No se pudo avisar al prevencionista: este centro de costo todavía no tiene uno asignado (asígnalo en "Centros de costo").');
     } else {
-      Toast.success('Contratación iniciada', `${nombre} · se avisó al prevencionista para la homologación`);
+      Toast.success('Contratación iniciada', `${nombreCompleto} · se avisó al prevencionista para la homologación`);
     }
     renderContrataciones(container);
   } catch (e) {

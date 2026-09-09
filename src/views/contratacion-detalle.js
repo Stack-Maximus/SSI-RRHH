@@ -94,7 +94,11 @@ export async function renderContratacionDetalle(container, contratacionId, backV
       <div class="card">
         <h3>Datos de la contratación</h3>
         <div class="form-grid-2">
-          ${campo('Nombre completo', 'nombre_candidato', c.nombre_candidato)}
+          ${campo('Nombres', 'nombres_candidato', c.nombres_candidato)}
+          ${campo('Apellido paterno', 'apellido_paterno_candidato', c.apellido_paterno_candidato)}
+        </div>
+        <div class="form-grid-2">
+          ${campo('Apellido materno', 'apellido_materno_candidato', c.apellido_materno_candidato)}
           ${campo('RUT', 'rut_candidato', c.rut_candidato)}
         </div>
         <div class="form-grid-2">
@@ -171,7 +175,10 @@ export async function renderContratacionDetalle(container, contratacionId, backV
     guardarBtn.addEventListener('click', async () => {
       const patch = {};
       container.querySelectorAll('.k-input').forEach(el => { patch[el.dataset.field] = el.value.trim() || null; });
-      if (!patch.nombre_candidato) { Toast.warning('Falta el nombre', ''); return; }
+      if (!patch.nombres_candidato || !patch.apellido_paterno_candidato) {
+        Toast.warning('Falta el nombre', 'Indica al menos los nombres y el apellido paterno.');
+        return;
+      }
       guardarBtn.disabled = true; guardarBtn.textContent = 'Guardando...';
       try {
         await Data.actualizarContratacion(contratacionId, patch);
@@ -230,7 +237,9 @@ export async function renderContratacionDetalle(container, contratacionId, backV
       try {
         await Data.marcarContratado(contratacionId, {
           rut: c.rut_candidato,
-          nombre: c.nombre_candidato,
+          nombres: c.nombres_candidato,
+          apellido_paterno: c.apellido_paterno_candidato,
+          apellido_materno: c.apellido_materno_candidato,
           cargo: sol.detalle?.cargo || null,
           centro_costo_id: sol.centro_origen_id,
           sueldo_liquido: sol.detalle?.sueldo_liquido ?? null,

@@ -60,6 +60,26 @@ const parseTipoContrato = (v) => {
   const match = TIPOS_CONTRATO.find(t => normTexto(t) === n);
   return match ?? undefined;
 };
+// Si la planilla trae un "Nombre completo" / "Nombre" de una sola columna
+// (formato antiguo), se separa con la misma convención que usa la migración
+// 0015 para separar los trabajadores que ya existían: la última palabra es
+// el apellido materno, la anterior el paterno, el resto son los nombres.
+// Es una suposición -- best-effort, igual que en la BD -- así que después
+// conviene revisar a mano los casos dudosos en la tabla.
+const partirNombreCompleto = (v) => {
+  const palabras = String(v ?? '').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
+  if (!palabras.length) return { nombres: null, apellido_paterno: null, apellido_materno: null };
+  if (palabras.length === 1) return { nombres: palabras[0], apellido_paterno: null, apellido_materno: null };
+  if (palabras.length === 2) return { nombres: palabras[0], apellido_paterno: palabras[1], apellido_materno: null };
+  return {
+    nombres: palabras.slice(0, -2).join(' '),
+    apellido_paterno: palabras[palabras.length - 2],
+    apellido_materno: palabras[palabras.length - 1]
+  };
+};
+// Nombre completo para mostrar en la vista previa de importación, armado
+// igual que el trigger armar_nombre_trabajador() de la BD (migración 0015).
+const nombreCompletoDeFila = (f) => [f.nombres, f.apellido_paterno, f.apellido_materno].filter(Boolean).join(' ') || '—';
 
 // normaliza encabezados: minúsculas, sin acentos, espacios simples
 const normKey = (k) => String(k).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
@@ -99,7 +119,7 @@ export async function renderTrabajadores(container) {
     <div id="import-zone"></div>
     <div class="table-wrap" style="margin-top:14px;">
       <table class="data-table">
-        <thead><tr><th>RUT</th><th>Nombre</th><th>Cargo</th><th>Centro</th><th>Tipo de contrato</th><th>Fecha término contrato</th><th>Indefinido</th><th>Anexo renovación</th><th></th></tr></thead>
+        <thead><tr><th>RUT</th><th>Nombres</th><th>Apellido Paterno</th><th>Apellido Materno</th><th>Cargo</th><th>Centro</th><th>Tipo de contrato</th><th>Fecha término contrato</th><th>Indefinido</th><th>Anexo renovación</th><th></th></tr></thead>
         <tbody id="trab-tbody"></tbody>
       </table>
     </div>`;
@@ -123,7 +143,9 @@ function pintarTabla(container) {
   tbody.innerHTML = trabajadores.map(t => `
     <tr data-id="${t.id}" class="${t.activo ? '' : 'row-inactivo'}">
       <td class="mono">${escapeHtml(t.rut || '—')}</td>
-      <td>${escapeHtml(t.nombre)}</td>
+      <td><input type="text" class="t-input" data-field="nombres" value="${escapeHtml(t.nombres || '')}" placeholder="Nombres"></td>
+      <td><input type="text" class="t-input" data-field="apellido_paterno" value="${escapeHtml(t.apellido_paterno || '')}" placeholder="Apellido paterno"></td>
+      <td><input type="text" class="t-input" data-field="apellido_materno" value="${escapeHtml(t.apellido_materno || '')}" placeholder="Apellido materno"></td>
       <td>${escapeHtml(t.cargo || '—')}</td>
       <td>${escapeHtml(idToCentro.get(t.centro_costo_id)?.nombre || '—')}</td>
       <td><select class="t-input" data-field="tipo_contrato">${optsContratoTabla(t.tipo_contrato)}</select></td>
@@ -142,7 +164,7 @@ function pintarTabla(container) {
       const tr = el.closest('tr');
       const id = tr.dataset.id;
       const field = el.dataset.field;
-      const value = el.type === 'checkbox' ? el.checked : (el.value || null);
+      const value = el.type === 'checkbox' ? el.checked : (el.value.trim() || null);
       const patch = { [field]: value };
       if (field === 'contrato_indefinido' && value) patch.fecha_termino_contrato = null; // indefinido no lleva fecha
       try {
@@ -150,9 +172,11 @@ function pintarTabla(container) {
         const t = trabajadores.find(x => x.id === id);
         Object.assign(t, patch);
         // tipo_contrato dispara un trigger en la BD (marcar_requiere_anexo_renovacion,
-        // migración 0013) que puede prender requiere_anexo_renovacion solo -- se
-        // recarga esa fila para reflejar el flag actualizado sin esperar a un refresh completo.
-        if (field === 'tipo_contrato') {
+        // migración 0013) que puede prender requiere_anexo_renovacion solo; nombres/
+        // apellido_paterno/apellido_materno arman trabajadores.nombre solos (migración
+        // 0015) -- en los dos casos se recarga la fila para reflejar el valor calculado
+        // por la base sin esperar a un refresh completo.
+        if (['tipo_contrato', 'nombres', 'apellido_paterno', 'apellido_materno'].includes(field)) {
           try { Object.assign(t, await Data.trabajadorPorId(id)); } catch { /* se mantiene lo que ya había */ }
         }
         Toast.success('Guardado', '');
@@ -169,17 +193,17 @@ function pintarTabla(container) {
   });
 }
 
-const HEADERS = ['RUT', 'Nombre Completo', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Sueldo Líquido Pactado', 'Tipo de Contrato', 'Fecha Término Contrato', 'Contrato Indefinido'];
+const HEADERS = ['RUT', 'Nombres', 'Apellido Paterno', 'Apellido Materno', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Sueldo Líquido Pactado', 'Tipo de Contrato', 'Fecha Término Contrato', 'Contrato Indefinido'];
 
 function descargarPlantilla() {
   const c0 = centros[0];
   const aoa = [
     HEADERS,
-    ['12.345.678-9', 'Juan Pérez González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo ?? '10', c0?.nombre ?? '', 650000, 'Obra o Faena', '2027-03-31', 'No'],
-    ['98.765.432-1', 'María Soto Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000, 'Indefinido', '', 'Sí']
+    ['12.345.678-9', 'Juan', 'Pérez', 'González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo ?? '10', c0?.nombre ?? '', 650000, 'Obra o Faena', '2027-03-31', 'No'],
+    ['98.765.432-1', 'María', 'Soto', 'Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000, 'Indefinido', '', 'Sí']
   ];
   const wsT = XLSX.utils.aoa_to_sheet(aoa);
-  wsT['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 16 }, { wch: 20 }, { wch: 18 }];
+  wsT['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 16 }, { wch: 20 }, { wch: 18 }];
 
   const inst = [
     ['PLANTILLA MAESTRA DE TRABAJADORES · SSI-RRHH Metalium'],
@@ -187,6 +211,7 @@ function descargarPlantilla() {
     ['Carga la dotación COMPLETA (no solo los nuevos).'],
     ['El RUT es la clave: si ya existe en el sistema se ACTUALIZA; si es nuevo se CREA.'],
     ['Antes de aplicar, la app te muestra trabajador por trabajador qué cambia.'],
+    ['"Nombres" / "Apellido Paterno" / "Apellido Materno": van en columnas separadas. "Apellido Materno" puede ir vacío; "Nombres" y "Apellido Paterno" no deberían quedar vacíos.'],
     ['El "Código Centro Costo" debe coincidir con uno de la lista de abajo.'],
     ['"Sueldo Líquido Pactado": número, sin $ ni puntos (ej: 650000).'],
     ['"Tipo de Contrato": Plazo Fijo / Obra o Faena / Indefinido (déjalo vacío si no se conoce). Si queda en "Obra o Faena", el sistema exige un anexo de renovación antes de poder trasladar a ese trabajador.'],
@@ -210,7 +235,9 @@ function descargarPlantilla() {
 function exportar() {
   const filas = trabajadores.map(t => ({
     'RUT': t.rut,
-    'Nombre Completo': t.nombre,
+    'Nombres': t.nombres ?? '',
+    'Apellido Paterno': t.apellido_paterno ?? '',
+    'Apellido Materno': t.apellido_materno ?? '',
     'Profesión': t.profesion,
     'Cargo': t.cargo,
     'Código Centro Costo': idToCentro.get(t.centro_costo_id)?.codigo ?? '',
@@ -257,9 +284,27 @@ async function importar(file, container) {
     const tipoContrato = parseTipoContrato(tipoContratoCrudo);
     const tipoContratoInvalido = tipoContrato === undefined; // valor presente pero no reconocido
     const prev = porRut.get(normRut(rut));
+    // Nombres: se prefieren las 3 columnas separadas. Si la planilla no trae
+    // ninguna de las 3 pero sí trae "Nombre completo" / "Nombre" (formato
+    // antiguo), se separa automático con partirNombreCompleto() -- así una
+    // planilla vieja se puede seguir importando sin tener que rehacerla.
+    let nombres = txt(pick(rn, 'nombres', 'nombre(s)'));
+    let apellidoPaterno = txt(pick(rn, 'apellido paterno', 'apellido pat', 'apellido pat.'));
+    let apellidoMaterno = txt(pick(rn, 'apellido materno', 'apellido mat', 'apellido mat.'));
+    if (!nombres && !apellidoPaterno && !apellidoMaterno) {
+      const completo = txt(pick(rn, 'nombre completo', 'nombre'));
+      if (completo) {
+        const partido = partirNombreCompleto(completo);
+        nombres = partido.nombres;
+        apellidoPaterno = partido.apellido_paterno;
+        apellidoMaterno = partido.apellido_materno;
+      }
+    }
     const fila = {
       rut,
-      nombre: txt(pick(rn, 'nombre completo', 'nombre')),
+      nombres,
+      apellido_paterno: apellidoPaterno,
+      apellido_materno: apellidoMaterno,
       profesion: txt(pick(rn, 'profesion')),
       cargo: txt(pick(rn, 'cargo')),
       sueldo_liquido: parseMoney(pick(rn, 'sueldo liquido pactado', 'sueldo liquido', 'sueldo')),
@@ -282,7 +327,9 @@ async function importar(file, container) {
         const a = prev[campo] ?? null, b = fila[campo] ?? null;
         if (String(a ?? '') !== String(b ?? '')) cambios.push(`${label}: ${fmt(a) || '—'} → ${fmt(b) || '—'}`);
       };
-      cmp('nombre', 'Nombre');
+      cmp('nombres', 'Nombres');
+      cmp('apellido_paterno', 'Apellido Paterno');
+      cmp('apellido_materno', 'Apellido Materno');
       cmp('cargo', 'Cargo');
       cmp('profesion', 'Profesión');
       cmp('sueldo_liquido', 'Sueldo', pesos);
@@ -314,7 +361,7 @@ async function importar(file, container) {
   const filasHtml = items.map(i => `
     <tr class="${i.estado === 'sin_cambios' ? 'row-inactivo' : ''}">
       <td class="mono">${escapeHtml(i.fila.rut)}</td>
-      <td>${escapeHtml(i.fila.nombre || '—')}</td>
+      <td>${escapeHtml(nombreCompletoDeFila(i.fila))}</td>
       <td>${badge(i.estado)}</td>
       <td>${i.cambios.length ? escapeHtml(i.cambios.join(' · ')) : (i.estado === 'nuevo' ? 'Alta de trabajador' : '—')}${i.codigoInvalido ? ' <span class="badge badge-danger">código de centro inexistente</span>' : ''}${i.tipoContratoInvalido ? ' <span class="badge badge-danger">tipo de contrato no reconocido, se deja como estaba</span>' : ''}</td>
     </tr>`).join('');

@@ -19,7 +19,7 @@ const TIPOS = [['administrativo', 'Administrativo'], ['operativo', 'Operativo']]
 export async function renderContrataciones(container) {
   container.innerHTML = '<div class="view-loading">Cargando contrataciones...</div>';
 
-  let solicitudes, contratMap, centros, perfiles;
+  let solicitudes, contratMap, centros, perfiles, rechazos;
   try {
     solicitudes = await Data.solicitudesIngresoAprobadas();
     [contratMap, centros] = await Promise.all([
@@ -27,6 +27,10 @@ export async function renderContrataciones(container) {
       Data.listCentrosAdmin()
     ]);
     perfiles = await Data.perfilesPorId(solicitudes.map(s => s.solicitante_id));
+    // Para avisar acá mismo cuando Prevención rechazó la homologación por un
+    // problema de documento (ver migración 0016) -- solo eso le corresponde
+    // a RRHH corregir; el resto de los motivos de rechazo quedan en Homologación SST.
+    rechazos = await Data.rechazosPorContratacion([...contratMap.values()].flat().map(c => c.id));
   } catch (e) {
     console.error('[contrataciones]', e);
     Toast.error('Error', 'No se pudieron cargar las contrataciones.');
@@ -50,22 +54,29 @@ export async function renderContrataciones(container) {
     <div class="sol-grid" id="contr-grid"></div>`;
 
   const grid = container.querySelector('#contr-grid');
-  grid.innerHTML = solicitudes.map(s => cardSolicitud(s, contratMap.get(s.id) || [], centrosMap, perfiles)).join('');
+  grid.innerHTML = solicitudes.map(s => cardSolicitud(s, contratMap.get(s.id) || [], centrosMap, perfiles, rechazos)).join('');
 
   wireCards(container, solicitudes, centrosMap);
 }
 
-function cardSolicitud(s, contrataciones, centrosMap, perfiles) {
+function cardSolicitud(s, contrataciones, centrosMap, perfiles, rechazosMap) {
   const solicitante = perfiles.get(s.solicitante_id)?.nombre || '—';
   const cantidad = s.detalle?.cantidad || 1;
-  const rows = contrataciones.map(c => `
+  const rows = contrataciones.map(c => {
+    // El último rechazo de homologación con documento(s) marcado(s) es lo
+    // único que le toca corregir a RRHH -- el resto de los rechazos (sin
+    // documento marcado) son asunto de Prevención con el solicitante.
+    const ultimoRechazoDoc = [...(rechazosMap.get(c.id) || [])].reverse().find(r => r.documentos.length > 0);
+    return `
     <div class="contr-row" data-ver="${c.id}">
       <div>
         <b>${escapeHtml(c.nombre_candidato)}</b>
         <span class="muted"> · ${canalLabel(c.canal)} · ${tipoTrabajadorLabel(c.tipo_trabajador)}</span>
+        ${ultimoRechazoDoc ? '<span class="badge badge-danger" title="Prevención marcó un documento en el último rechazo de homologación">⚠️ Revisar documento</span>' : ''}
       </div>
       <div>${estadoContratacionBadge(c.estado)} <button class="link-btn" data-ver-btn="${c.id}">Ver ▸</button></div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   return `
     <div class="sol-card" data-sol="${s.id}">

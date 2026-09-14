@@ -19,7 +19,7 @@ import { encabezadoSvg, ajustarTextosEncabezado } from '../ui/encabezado-svg.js'
 // esta hoja de estilos no viaja cuando se serializa solo el <svg>.
 import '../styles/comprobante.css';
 
-let _sols = [], _centros, _trab, _perfiles, _checklist = [], _docsTraslado = new Map(), _backView, _container;
+let _sols = [], _centros, _trab, _perfiles, _checklist = [], _docsTraslado = new Map(), _rechazosTraslado = new Map(), _backView, _container;
 
 export function renderSolicitudes(container) {
   return cargar(container, { soloFinalizadas: false, titulo: 'Todas las solicitudes', backView: 'solicitudes' });
@@ -38,10 +38,14 @@ async function cargar(container, opts) {
     _centros = new Map(centros.map(c => [c.id, c]));
     _checklist = checklist;
     const trasladoAprobadaIds = _sols.filter(s => s.tipo === 'traslado' && s.estado === 'aprobada').map(s => s.id);
-    [_trab, _perfiles, _docsTraslado] = await Promise.all([
+    [_trab, _perfiles, _docsTraslado, _rechazosTraslado] = await Promise.all([
       Data.trabajadoresPorId(_sols.map(s => s.trabajador_id)),
       Data.perfilesPorId(_sols.map(s => s.solicitante_id)),
-      Data.documentosTrasladoPorSolicitud(trasladoAprobadaIds)
+      Data.documentosTrasladoPorSolicitud(trasladoAprobadaIds),
+      // Solo interesa acá el rechazo con documento(s) marcado(s) (migración
+      // 0016) -- lo único que le toca corregir a RRHH; el resto del motivo
+      // de rechazo se ve en Homologación SST.
+      Data.rechazosPorSolicitudTraslado(trasladoAprobadaIds)
     ]);
   } catch (e) {
     console.error('[solicitudes]', e);
@@ -125,6 +129,7 @@ function card(s) {
         <span class="sol-id">${s.codigo || '—'}</span>
         <span class="sol-tipo">${tipoLabel(s.tipo)}</span>
         ${estadoBadge(s.estado)}
+        ${badgeRechazoTraslado(s)}
       </div>
       <div class="sol-resumen">${resumen(s, _centros, _trab)}</div>
       <div class="sol-detalle muted">Solicitante: ${escapeHtml(solicitante)} · ${fechaCorta(s.created_at)} · ${aprob}/${total} aprobada(s)</div>
@@ -153,15 +158,47 @@ function accionesRRHH(s) {
   return '';
 }
 
+/**
+ * Último rechazo de homologación de un traslado que además tiene
+ * documento(s) marcado(s) (migración 0016) -- es el único caso en que le
+ * toca corregir algo a RRHH; el resto de los rechazos (sin documento
+ * marcado) son asunto de Prevención con el solicitante y se ven en
+ * Homologación SST, no acá.
+ */
+function ultimoRechazoDocTraslado(solicitudId) {
+  return [...(_rechazosTraslado.get(solicitudId) || [])].reverse().find(r => r.documentos.length > 0) || null;
+}
+
+/** Badge chico para el encabezado de la tarjeta, visible sin expandir el detalle. */
+function badgeRechazoTraslado(s) {
+  if (s.tipo !== 'traslado') return '';
+  return ultimoRechazoDocTraslado(s.id)
+    ? '<span class="badge badge-danger" title="Prevención marcó un documento en el último rechazo de homologación">⚠️ Revisar documento</span>'
+    : '';
+}
+
 function accionTraslado(s) {
   const documentos = _docsTraslado.get(s.id) || [];
   const prog = progresoDocumentosTraslado(_checklist, documentos);
+  const rechazosS = _rechazosTraslado.get(s.id) || [];
+  const ultimoRechazoDoc = ultimoRechazoDocTraslado(s.id);
+  const docsConProblema = new Set(ultimoRechazoDoc?.documentos || []);
+  const checklistMap = new Map(_checklist.map(i => [i.id, i]));
+  const aviso = ultimoRechazoDoc ? `
+    <div class="sol-accion" style="border-left:3px solid #dc2626;">
+      <h4>⚠️ Prevención rechazó la homologación</h4>
+      <p class="hint">El ${fechaCorta(ultimoRechazoDoc.created_at)} se marcó un problema con:
+        <b>${ultimoRechazoDoc.documentos.map(id => escapeHtml(checklistMap.get(id)?.nombre || '—')).join(', ')}</b>.
+        Revísalo(s) y vuelve a subir el documento corregido.</p>
+      <p class="hint">"${escapeHtml(ultimoRechazoDoc.motivo)}"</p>
+      ${rechazosS.length > 1 ? `<p class="hint muted">Este traslado lleva ${rechazosS.length} rechazo(s) de homologación en total.</p>` : ''}
+    </div>` : '';
   const filas = prog.items.map(item => {
     const doc = prog.docPorItem.get(item.id);
     return `
       <div class="chk-row ${doc ? 'chk-ok' : ''}">
         <div class="chk-info">
-          <div class="chk-nombre">${doc ? '✅' : '⬜'} ${escapeHtml(item.nombre)}</div>
+          <div class="chk-nombre">${doc ? '✅' : '⬜'} ${escapeHtml(item.nombre)}${docsConProblema.has(item.id) ? ' <span class="badge badge-danger" title="Prevención marcó este documento en el último rechazo">⚠️ Revisar</span>' : ''}</div>
           ${doc
             ? `<div class="muted"><button class="link-btn" data-doc-traslado="${doc.storage_path}">${escapeHtml(doc.nombre_archivo)}</button> · subido ${fechaCorta(doc.created_at)}</div>`
             : '<div class="muted">Sin subir.</div>'}
@@ -171,6 +208,7 @@ function accionTraslado(s) {
       </div>`;
   }).join('');
   return `
+    ${aviso}
     <div class="sol-accion">
       <h4>Documentos para homologación (Prevención)</h4>
       <div class="checklist-list">${filas}</div>

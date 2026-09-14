@@ -57,7 +57,18 @@
     11). No necesita ir como paso aparte (no agrega ningún valor de enum, a diferencia de 0001/0005/0014) y no
     agrega ni cambia ninguna Edge Function -- pero sí conviene, después de correrla, revisar en **Trabajadores**
     cómo quedaron separados los nombres de varias palabras (la sección 11 explica por qué y qué mirar).
-19. `npm install && npm run build` (o `npm run dev` para probar local). No hay variables `.env` nuevas.
+19. Correr **`supabase/migrations/0016_homologacion_rechazo.sql`** (agrega el rechazo de homologación SST --
+    tabla `homologacion_rechazos` + `homologacion_rechazo_documentos`, y la columna
+    `perfiles.es_gerente_prevencion` -- ver sección 12). No necesita ir como paso aparte. Después de correrla:
+    - En **Usuarios**, marca **Gerente Prev.** a quien corresponda (puede ser más de una persona; si no marcas
+      a nadie, ese correo simplemente no se manda -- el resto del rechazo funciona igual).
+    - Vuelve a desplegar `notificar` (mismo nombre de los pasos 12/17) -- agregó el tipo de correo
+      `homologacion_rechazada`:
+      ```
+      supabase functions deploy notificar
+      ```
+      No cambia `comprobante-pdf` ni `maestro-pdf`, así que no hace falta volver a desplegarlas por este paso.
+20. `npm install && npm run build` (o `npm run dev` para probar local). No hay variables `.env` nuevas.
 
 **Importante — descomprimir el zip no despliega nada solo.** El zip son los archivos del proyecto; para
 que un cambio quede activo hay que llevarlo a cada destino que le corresponda, y son **tres destinos
@@ -973,7 +984,7 @@ la llegada del trabajador a la obra). Un par de detalles de implementación, por
   encaje. Si tu área legal necesita las causales exactas del artículo correspondiente (Art. 159/160/161),
   cambio la lista fácil.
 - No agregué un aviso a RRHH específicamente en el momento "Autorizar ingreso a obra" -- ver "Correo a RRHH
-  cuando se autoriza un ingreso a obra" en la sección 12 (Pendiente), que dejo actualizada con el estado real
+  cuando se autoriza un ingreso a obra" en la sección 13 (Pendiente), que dejo actualizada con el estado real
   después de esta entrega.
 
 **Verificación hecha antes de esta entrega:** además de releer cada pieza (migraciones, RLS, trigger,
@@ -1101,7 +1112,142 @@ obligatorio pero no si solo falta el materno (opcional), y que "Marcar como cont
 trabajador nuevo. 46 verificaciones en total, todas pasaron, cero errores de consola del navegador. `npm run
 build` sigue compilando limpio.
 
-## 12. Pendiente / sugerido para después
+## 12. Rechazo de homologación SST
+
+Pediste que en Homologación SST, además de "Autorizar ingreso a obra", exista la opción de **rechazar** --
+con un motivo obligatorio que escribe el prevencionista --, que cada rechazo **extienda el plazo 3 días
+hábiles más**, que esa información llegue **siempre al solicitante original y a un nuevo "Gerente de
+Prevención"** (por correo), que llegue **a RRHH solo cuando el problema es con algún documento** que ellos
+subieron, y que además se **mida cuántas veces se rechaza** cada homologación. Antes de tocar código te
+pregunté 3 cosas puntuales, porque lo que me escribiste ("los 9 días (ahora 9 días)") no calzaba con lo que
+tenía desplegado (que en todas partes decía 8 días hábiles) y porque había más de una forma razonable de
+implementar la extensión acumulable y el aviso a RRHH -- así quedó, con tus respuestas:
+
+- **La meta base sube de 8 a 9 días hábiles** (no fue un error de tipeo tuyo -- me confirmaste subirla).
+- **La extensión es acumulable**: cada rechazo del mismo caso suma 3 días hábiles más (si un caso se rechaza
+  2 veces, su plazo queda 6 días hábiles más largo que la meta).
+- **El prevencionista marca qué documento(s) del checklist tienen el problema** (checkboxes, no una casilla
+  única "¿hay problema con un documento?") -- eso es justo lo que decide si RRHH queda copiado, y de paso
+  RRHH ve exactamente cuál(es) corregir, no solo que "algo" está mal.
+
+### Qué se agregó
+
+**Botón "Rechazar homologación"**, junto al ya existente "Autorizar ingreso a obra", en el detalle de cada
+caso de Homologación SST (ingreso y traslado -- los mismos dos caminos que ya tenía "Autorizar"). Al hacer
+clic se abre un formulario en la misma pantalla (no una ventana aparte):
+
+- **Motivo** (obligatorio, texto libre) -- no se puede confirmar el rechazo sin escribir algo.
+- **Checklist de los mismos documentos que ya se muestran como "Documentos para homologación"** (los 2 de
+  ingreso o los 3 de traslado), con un checkbox cada uno, **opcional** -- se marcan los que tengan el
+  problema, ninguno si el motivo no tiene que ver con un documento puntual (por ejemplo, algo del propio
+  trabajador o de la inducción SST).
+
+El caso **no cambia de estado** al rechazarlo -- sigue apareciendo en Homologación SST como pendiente, con
+su historial de rechazos visible debajo (fecha, quién, motivo, y qué documentos se marcaron en cada uno, si
+corresponde). Se puede volver a autorizar o rechazar de nuevo más adelante, cuantas veces haga falta -- no
+hay un límite de rechazos por caso.
+
+### La extensión del plazo (9 días hábiles + 3 por cada rechazo)
+
+La meta de "SLA Homologación" (dashboard de Prevención) sube de 8 a 9 días hábiles, y cada rechazo de un
+caso le suma 3 días hábiles más **a ese caso puntual** (no a la meta general, que se mantiene en 9 para
+casos sin rechazos). No agregué una columna "cuántos días lleva de extensión" -- el número de rechazos de
+cada caso se cuenta al momento de calcular el dashboard (contando filas de la tabla nueva
+`homologacion_rechazos`, ver más abajo), así no hay un contador aparte que se pueda desincronizar de la
+auditoría real. El dashboard ahora muestra, además:
+
+- Una tarjeta **"Rechazos"** con el total de rechazos y cuántos casos tienen al menos uno (KPI nuevo, es la
+  forma en que quedó medida "la cantidad de veces que se rechaza la homologación" que pediste).
+- Una columna **"Rechazos"** en el detalle por caso, con el número de veces que se rechazó ese caso puntual.
+- "Atrasadas" y "Cumplimiento SLA" ya consideran la extensión de cada caso (un caso rechazado 1 vez tiene
+  que pasarse de 12 días hábiles, no de 9, para contar como atrasado).
+
+### A quién le llega el aviso
+
+Por correo (misma Edge Function `notificar`, un tipo nuevo: `homologacion_rechazada`):
+
+- **A quien hizo la solicitud de ingreso o traslado**: siempre, con el motivo y cuántos rechazos lleva el
+  caso.
+- **Al Gerente de Prevención**: siempre, con el detalle completo (quién rechazó, motivo, documento(s)
+  marcado(s) si los hay). Es un rol nuevo, chico: un casillero **"Gerente Prev."** en **Usuarios** (mismo
+  patrón que ya tenías para "Gerente Op.") -- lo marcas en el perfil de quien corresponda, puede ser más de
+  una persona (a todos les llega copia), y si no marcas a nadie ese correo simplemente no se manda (el resto
+  del rechazo funciona igual). A diferencia de Gerente de Operaciones, este rol **no aprueba nada** -- por
+  eso no participa del flujo de "Nueva solicitud" ni de ningún cálculo de aprobadores automáticos.
+- **A RRHH**: solo si el rechazo marcó al menos un documento del checklist -- con cuál(es) documento(s)
+  hay que corregir o reemplazar y el motivo. Si el rechazo fue por otra razón (sin documento marcado), RRHH
+  no recibe nada -- ese caso queda entre Prevención y el solicitante.
+
+### Qué ve RRHH en pantalla (no solo el correo)
+
+Pediste explícitamente que además "aparezca en RRHH" cuando se rechaza un contrato o documento -- no me
+quedé solo con el correo. Cuando el rechazo más reciente de un caso marcó documento(s), RRHH lo ve en las
+pantallas donde ya gestiona esos documentos (mismo criterio en los 3 lugares: solo se muestra si el **último**
+rechazo del caso tiene documento(s) marcado(s) -- si Prevención ya lo volvió a autorizar o a rechazar sin
+marcar nada, deja de mostrarse):
+
+- **Contratación** (lista): una marca "⚠️ Revisar documento" junto al nombre del candidato, sin necesidad de
+  entrar al detalle.
+- **Contratación → detalle del candidato**: una tarjeta con el motivo, qué documento(s) corregir y desde
+  cuándo, más la misma marca "⚠️ Revisar" en la fila exacta del checklist que corresponde reemplazar.
+- **Solicitudes / Historial** (traslado, panel de subida de documentos): mismo par -- marca en el
+  encabezado de la tarjeta y aviso + marca en la fila del documento, dentro del mismo bloque donde ya sube
+  o reemplaza los 3 documentos de traslado.
+
+### Diseño técnico (por qué quedó así)
+
+Migración `0016_homologacion_rechazo.sql`, 100% aditiva (no toca ninguna tabla, función ni política
+existente):
+
+- **`homologacion_rechazos`**: una fila por cada rechazo -- `contratacion_id` (ingreso) **o**
+  `solicitud_id` (traslado, nunca los dos), motivo, quién y cuándo. Mismo criterio "ingreso XOR traslado"
+  que ya usan `homologacion_aprobada_at/_por` (contrataciones) y `homologacion_traslado_aprobada_at/_por`
+  (solicitudes) desde las migraciones 0011/0012, pero en una sola tabla porque además hay auditoría y una
+  relación con los documentos marcados.
+- **`homologacion_rechazo_documentos`**: qué ítem(s) del checklist se marcaron en cada rechazo -- si un
+  rechazo tiene al menos 1 fila acá, ese es el que decide el aviso a RRHH (correo y pantalla).
+- **`perfiles.es_gerente_prevencion`**: booleano, igual patrón que `es_gerente_operaciones`.
+- **RLS**: el prevencionista solo puede rechazar (o ver el historial de) los casos de su(s) centro(s) de
+  costo asignados -- mismo criterio de fila que ya usan las políticas de "Autorizar ingreso a obra"
+  (0009/0011/0012); RRHH puede leer el historial completo (de solo lectura, nunca rechaza); admin gestiona
+  todo.
+- **La extensión del plazo no vive en una columna**: se calcula contando filas de `homologacion_rechazos`
+  para cada caso, en el momento de armar el dashboard -- mismo motivo que ya expliqué en la sección 11 para
+  no duplicar información que se pueda desincronizar.
+
+**Decisión que tomé y no te pregunté, por ser de bajo riesgo (fácil de ajustar si no te acomoda):** el
+motivo del rechazo, al ir en el cuerpo HTML de un correo, ahora se escapa antes de insertarlo (por si alguien
+escribe algo con `<`, `>` o `&`, que rompería el formato del correo) -- es la primera vez que este módulo
+mete texto libre, largo, escrito por una persona, directo en un correo (los campos que ya mandaban los
+correos anteriores son más acotados: nombres, códigos). Los correos que ya existían antes de esta entrega
+no se tocaron y siguen sin ese escape -- si alguna vez un nombre de candidato o de centro de costo trae
+`<`/`>`/`&`, podría verse mal en el correo (no es un problema de seguridad de la aplicación, solo de cómo se
+ve el correo) -- lo dejo anotado en "Pendiente" por si en algún momento quieres que lo revise también ahí.
+
+**Verificación hecha antes de esta entrega:** armé un arnés de prueba aparte que carga las vistas reales
+(Dashboard Prevención, Homologación, Contrataciones, Detalle de contratación, Solicitudes, Usuarios) contra
+datos de prueba fijos, y con un navegador real controlado por script (Playwright, mismo método que vengo
+usando) corrí 38 verificaciones de punta a punta: que la meta efectiva (9 + 3 por cada rechazo) se calcule y
+se muestre bien en el dashboard para casos con 0, 1 y 2 rechazos; que el historial de rechazos se vea completo
+y en orden; que intentar rechazar sin motivo lo bloquee (con aviso) y no llegue a guardar nada; que rechazar
+-- de ingreso y de traslado, con y sin documento marcado -- llame a `Data.rechazarHomologacion...` con los
+datos correctos y dispare la notificación; que, tras rechazar, el historial se actualice solo; y que el aviso
+a RRHH (badge en la lista, tarjeta en el detalle, badge por documento en el checklist) aparezca solo cuando el
+último rechazo tiene documento marcado, y no aparezca si no lo tiene. Las 38 pasaron, cero errores de consola.
+Ese mismo proceso encontró (y ya corregí, antes de mostrarte esto) un bug real: los botones "Rechazar
+homologación" tomaban el botón desde el evento del clic (`e.currentTarget`) después de esperar tu
+confirmación en el modal, y para ese momento el navegador ya lo había dejado en `null` -- el clic terminaba en
+un error silencioso y el rechazo nunca se guardaba. Quedó arreglado capturando el botón antes de esa espera,
+mismo patrón que ya usaba el botón "Autorizar ingreso a obra" en el mismo archivo. Aparte, con un script
+suelto (Node, sin navegador) verifiqué 13 casos de la matemática de la extensión de plazo y de la lógica
+"último rechazo con documento marcado" (se repite en 3 pantallas). Lo único que no pude probar de punta a
+punta es el envío real de los 3 correos nuevos -- eso necesita el proyecto de Supabase desplegado con la
+función `notificar` actualizada; sí revisé que el TypeScript de esa función compile y que la lógica de a quién
+le llega cada correo esté bien escrita. Te recomiendo hacer un rechazo de prueba real después de desplegar
+para confirmar que los 3 correos efectivamente llegan (solicitante, Gerente de Prevención y, si marcaste
+algún documento, RRHH). `npm run build` sigue compilando limpio.
+
+## 13. Pendiente / sugerido para después
 
 - No agregué borrado de documentos ya subidos (solo "reemplazar"); si necesitas poder sacar uno sin
   reemplazarlo, lo agrego.
@@ -1124,3 +1270,12 @@ build` sigue compilando limpio.
   reemplaza, en la práctica, al contrato nuevo que no corresponde firmar cuando la persona ya está contratada).
   Si Prevención también necesita ver un Anexo de Contrato en casos de ingreso, avísame y lo sumo al checklist
   existente.
+- **Escape de texto libre en correos (ver sección 12)**: al agregar el rechazo de homologación, el motivo que
+  escribe el prevencionista ahora se escapa antes de ir en el HTML del correo. Los correos anteriores a esta
+  entrega (nombres de candidato/trabajador, cargos, centros de costo, etc.) no se tocaron y siguen sin ese
+  escape -- en la práctica esos campos casi nunca traen `<`, `>` o `&`, pero si en algún momento quieres que
+  lo revise también ahí, es un cambio chico y acotado.
+- **Rechazo de homologación (sección 12) sin tope**: un caso se puede rechazar cuantas veces haga falta, sin
+  límite -- si en algún momento quieres, por ejemplo, que después de N rechazos se escale a alguien más
+  (además del Gerente de Prevención, que ya se avisa siempre) o que se bloquee "Autorizar" mientras haya un
+  documento marcado sin reemplazar, son extensiones chicas sobre lo mismo -- avísame.

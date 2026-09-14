@@ -10,6 +10,16 @@
  * En ambos casos se puede "Autorizar ingreso a obra" una vez que los
  * documentos están completos -- mismo botón, mismo criterio de auditoría
  * (quién y cuándo), solo que actualiza una tabla distinta según el origen.
+ *
+ * También se puede "Rechazar homologación" (ver migración 0016): motivo
+ * obligatorio y, opcionalmente, marcar qué documento(s) del checklist
+ * tienen el problema. El caso NO cambia de estado -- sigue pendiente, así
+ * que una vez que RRHH corrija lo que corresponda (o el prevencionista
+ * reconsidere) se puede volver a autorizar o rechazar de nuevo (cada
+ * rechazo extiende el plazo del caso 3 días hábiles más, acumulable, ver
+ * dashboard-prevencion.js). El rechazo se le avisa siempre al solicitante
+ * original y al Gerente de Prevención; a RRHH solo si se marcó algún
+ * documento (Edge Function `notificar`, tipo 'homologacion_rechazada').
  */
 
 import { Data } from '../db/data.js';
@@ -118,22 +128,82 @@ function filaDoc(item, doc, notaExtra = '') {
     </div>`;
 }
 
+/**
+ * Historial de rechazos de un caso (ingreso o traslado), más reciente
+ * primero -- con el motivo y, si aplica, qué documentos se marcaron como
+ * el problema (esos son los que además le avisan a RRHH, ver Edge
+ * Function `notificar`). No se muestra nada si el caso nunca se rechazó.
+ */
+function historialRechazos(rechazos, checklistMap, perfilesMap) {
+  if (!rechazos.length) return '';
+  const fila = (r) => {
+    const nombres = (r.documentos || []).map(id => checklistMap.get(id)?.nombre || '—');
+    return `
+      <div class="chk-row">
+        <div class="chk-info">
+          <div class="chk-nombre">🚫 Rechazado el ${fechaCorta(r.created_at)} · ${escapeHtml(perfilesMap.get(r.rechazado_por)?.nombre || '—')}</div>
+          <div class="muted">"${escapeHtml(r.motivo)}"</div>
+          ${nombres.length ? `<div class="muted">Documento(s) marcado(s): ${nombres.map(n => escapeHtml(n)).join(', ')}</div>` : ''}
+        </div>
+      </div>`;
+  };
+  return `
+    <div class="card">
+      <h3>Historial de rechazos (${rechazos.length})</h3>
+      <div class="checklist-list">${[...rechazos].reverse().map(fila).join('')}</div>
+    </div>`;
+}
+
+/**
+ * Formulario inline (oculto hasta que se pide rechazar) con el motivo
+ * obligatorio y el checklist de documentos para marcar el problema, si
+ * corresponde. `items` son los mismos documentos que ya se muestran como
+ * "Documentos para homologación" en el detalle (principales en ingreso,
+ * los 3 fijos en traslado).
+ */
+function formRechazo(items) {
+  const filas = items.map(i => `
+    <label class="chk-row" style="cursor:pointer;">
+      <input type="checkbox" class="rech-doc" value="${i.id}" style="margin-right:8px;">
+      <span>${escapeHtml(i.nombre)}</span>
+    </label>`).join('');
+  return `
+    <div class="form-field">
+      <label class="form-label">Motivo del rechazo <span class="req">*</span></label>
+      <textarea id="rech-motivo" rows="3" placeholder="Explica por qué se rechaza la homologación..."></textarea>
+    </div>
+    <div class="form-field">
+      <label class="form-label">¿Alguno de estos documentos tiene el problema? (opcional)</label>
+      <p class="hint" style="margin:2px 0 6px;">Si marcas al menos uno, además se le avisa a RRHH para que lo corrija o reemplace.</p>
+      <div class="checklist-list">${filas}</div>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn btn-secondary" id="rech-cancelar">Cancelar</button>
+      <button type="button" class="btn btn-danger" id="rech-confirmar">Rechazar homologación</button>
+    </div>`;
+}
+
 async function verDetalleIngreso(container, contratacionId, ctx) {
   container.innerHTML = '<div class="view-loading">Cargando documentos...</div>';
   const c = ctx.contrataciones.find(x => x.id === contratacionId);
-  let documentos;
+  let documentos, rechazos, perfilesMap;
   try {
-    documentos = await Data.documentosDeContratacion(contratacionId);
+    [documentos, rechazos] = await Promise.all([
+      Data.documentosDeContratacion(contratacionId),
+      Data.rechazosPorContratacion([contratacionId]).then(m => m.get(contratacionId) || [])
+    ]);
+    perfilesMap = await Data.perfilesPorId(rechazos.map(r => r.rechazado_por)).catch(() => new Map());
   } catch (e) {
     console.error('[homologacion] detalle ingreso', e);
     Toast.error('Error', 'No se pudieron cargar los documentos.');
-    documentos = [];
+    documentos = []; rechazos = []; perfilesMap = new Map();
   }
 
   const todos = checklistParaTipo(ctx.checklist, c.tipo_trabajador);
   const principales = todos.filter(i => i.requerido_homologacion);
   const otros = todos.filter(i => !i.requerido_homologacion);
   const docPorItem = new Map(documentos.map(d => [d.checklist_item_id, d]));
+  const checklistMap = new Map(ctx.checklist.map(i => [i.id, i]));
 
   const fila = (item) => filaDoc(item, docPorItem.get(item.id),
     item.codigo === 'contrato_trabajo' ? ' <span class="badge badge-info">Inicia el plazo de homologación</span>' : '');
@@ -146,8 +216,12 @@ async function verDetalleIngreso(container, contratacionId, ctx) {
         <h3>Autorización de ingreso a obra</h3>
         ${faltantesPrincipales > 0
           ? `<p class="hint">⚠️ Aún ${faltantesPrincipales === 1 ? 'falta 1 documento requerido' : `faltan ${faltantesPrincipales} documentos requeridos`} para homologación.</p>`
-          : '<p class="hint">Ya están los documentos requeridos para homologación. Revísalos y, si todo está en regla, autoriza el ingreso.</p>'}
-        <button class="btn btn-primary" id="autorizar-ingreso">Autorizar ingreso a obra</button>
+          : '<p class="hint">Ya están los documentos requeridos para homologación. Revísalos y, si todo está en regla, autoriza el ingreso; si algo no corresponde, rechaza indicando el motivo.</p>'}
+        <div class="form-actions" style="justify-content:flex-start;">
+          <button class="btn btn-primary" id="autorizar-ingreso">Autorizar ingreso a obra</button>
+          <button class="btn btn-danger" id="mostrar-rechazo">Rechazar homologación</button>
+        </div>
+        <div id="rechazo-form" hidden style="margin-top:14px;">${formRechazo(principales)}</div>
       </div>`;
 
   container.innerHTML = `
@@ -167,7 +241,8 @@ async function verDetalleIngreso(container, contratacionId, ctx) {
         <div class="checklist-list" style="margin-top:10px;">${otros.map(fila).join('') || '<span class="muted">No hay más documentos en este checklist.</span>'}</div>
       </details>
     </div>
-    ${accionAutorizacion}`;
+    ${accionAutorizacion}
+    ${historialRechazos(rechazos, checklistMap, perfilesMap)}`;
 
   container.querySelector('#volver').addEventListener('click', () => window.Router.go('homologacion'));
   container.querySelectorAll('[data-doc]').forEach(btn => {
@@ -207,6 +282,44 @@ async function verDetalleIngreso(container, contratacionId, ctx) {
       }
     });
   }
+
+  const btnMostrarRechazo = container.querySelector('#mostrar-rechazo');
+  if (btnMostrarRechazo) {
+    btnMostrarRechazo.addEventListener('click', () => {
+      container.querySelector('#rechazo-form').hidden = false;
+      btnMostrarRechazo.hidden = true;
+      container.querySelector('#autorizar-ingreso').hidden = true;
+    });
+    const btnRechConfirmar = container.querySelector('#rech-confirmar');
+    container.querySelector('#rech-cancelar').addEventListener('click', () => verDetalleIngreso(container, contratacionId, ctx));
+    btnRechConfirmar.addEventListener('click', async () => {
+      const motivo = container.querySelector('#rech-motivo').value.trim();
+      if (!motivo) { Toast.warning('Falta el motivo', 'Indica por qué se rechaza la homologación.'); return; }
+      const checklistItemIds = [...container.querySelectorAll('.rech-doc:checked')].map(i => i.value);
+      const ok = await Confirm.ask({
+        title: 'Rechazar homologación',
+        text: `Se rechaza la homologación de ${c.nombre_candidato}. El plazo del caso se extiende 3 días hábiles más. ¿Confirmas?`,
+        variant: 'danger',
+        confirmText: 'Rechazar'
+      });
+      if (!ok) return;
+      // No usar e.currentTarget acá: tras el `await` de Confirm.ask() el evento original
+      // ya terminó su despacho y el navegador lo deja en null -- por eso btnRechConfirmar
+      // se capturó ANTES, en una variable normal (mismo motivo por el que el resto de este
+      // archivo usa btnAutorizar de la misma forma).
+      btnRechConfirmar.disabled = true; btnRechConfirmar.textContent = 'Rechazando...';
+      try {
+        await Data.rechazarHomologacionIngreso(c.id, state.user.id, motivo, checklistItemIds);
+        Toast.success('Homologación rechazada', 'Se avisó a quien solicitó el ingreso.');
+        Data.notificarEvento('homologacion_rechazada', { contratacion_id: c.id }); // fire-and-forget
+        verDetalleIngreso(container, contratacionId, ctx);
+      } catch (err) {
+        console.error('[homologacion] rechazar ingreso', err);
+        Toast.error('Error', err.message || 'No se pudo registrar el rechazo.');
+        btnRechConfirmar.disabled = false; btnRechConfirmar.textContent = 'Rechazar homologación';
+      }
+    });
+  }
 }
 
 async function verDetalleTraslado(container, solicitudId, ctx) {
@@ -215,19 +328,22 @@ async function verDetalleTraslado(container, solicitudId, ctx) {
   const centrosMap = new Map(ctx.centros.map(c => [c.id, c]));
   const nombre = ctx.trabajadores.get(s.trabajador_id)?.nombre || 'Trabajador';
 
-  let documentos;
+  let documentos, rechazos, perfilesMap;
   try {
     const map = await Data.documentosTrasladoPorSolicitud([solicitudId]);
     documentos = map.get(solicitudId) || [];
     ctx.docsTraslado.set(solicitudId, documentos); // refresca el caché local de la bandeja
+    rechazos = await Data.rechazosPorSolicitudTraslado([solicitudId]).then(m => m.get(solicitudId) || []);
+    perfilesMap = await Data.perfilesPorId(rechazos.map(r => r.rechazado_por)).catch(() => new Map());
   } catch (e) {
     console.error('[homologacion] detalle traslado', e);
     Toast.error('Error', 'No se pudieron cargar los documentos.');
-    documentos = [];
+    documentos = []; rechazos = []; perfilesMap = new Map();
   }
 
   const prog = progresoDocumentosTraslado(ctx.checklist, documentos);
   const fila = (item) => filaDoc(item, prog.docPorItem.get(item.id));
+  const checklistMap = new Map(ctx.checklist.map(i => [i.id, i]));
 
   const autorizada = !!s.homologacion_traslado_aprobada_at;
   const accionAutorizacion = autorizada
@@ -236,8 +352,12 @@ async function verDetalleTraslado(container, solicitudId, ctx) {
         <h3>Autorización de ingreso a obra</h3>
         ${prog.faltantes.length > 0
           ? `<p class="hint">⚠️ Aún ${prog.faltantes.length === 1 ? 'falta 1 documento' : `faltan ${prog.faltantes.length} documentos`}.</p>`
-          : '<p class="hint">Ya están los 3 documentos. Revísalos y, si todo está en regla, autoriza el ingreso.</p>'}
-        <button class="btn btn-primary" id="autorizar-ingreso">Autorizar ingreso a obra</button>
+          : '<p class="hint">Ya están los 3 documentos. Revísalos y, si todo está en regla, autoriza el ingreso; si algo no corresponde, rechaza indicando el motivo.</p>'}
+        <div class="form-actions" style="justify-content:flex-start;">
+          <button class="btn btn-primary" id="autorizar-ingreso">Autorizar ingreso a obra</button>
+          <button class="btn btn-danger" id="mostrar-rechazo">Rechazar homologación</button>
+        </div>
+        <div id="rechazo-form" hidden style="margin-top:14px;">${formRechazo(prog.items)}</div>
       </div>`;
 
   container.innerHTML = `
@@ -252,7 +372,8 @@ async function verDetalleTraslado(container, solicitudId, ctx) {
       <p class="hint">Estos 3 documentos, una vez completos, inician el plazo de homologación.</p>
       <div class="checklist-list">${prog.items.map(fila).join('')}</div>
     </div>
-    ${accionAutorizacion}`;
+    ${accionAutorizacion}
+    ${historialRechazos(rechazos, checklistMap, perfilesMap)}`;
 
   container.querySelector('#volver').addEventListener('click', () => window.Router.go('homologacion'));
   container.querySelectorAll('[data-doc]').forEach(btn => {
@@ -289,6 +410,43 @@ async function verDetalleTraslado(container, solicitudId, ctx) {
         console.error('[homologacion] autorizar traslado', e);
         Toast.error('Error', e.message || 'No se pudo autorizar el ingreso.');
         btnAutorizar.disabled = false; btnAutorizar.textContent = 'Autorizar ingreso a obra';
+      }
+    });
+  }
+
+  const btnMostrarRechazo = container.querySelector('#mostrar-rechazo');
+  if (btnMostrarRechazo) {
+    btnMostrarRechazo.addEventListener('click', () => {
+      container.querySelector('#rechazo-form').hidden = false;
+      btnMostrarRechazo.hidden = true;
+      container.querySelector('#autorizar-ingreso').hidden = true;
+    });
+    const btnRechConfirmar = container.querySelector('#rech-confirmar');
+    container.querySelector('#rech-cancelar').addEventListener('click', () => verDetalleTraslado(container, solicitudId, ctx));
+    btnRechConfirmar.addEventListener('click', async () => {
+      const motivo = container.querySelector('#rech-motivo').value.trim();
+      if (!motivo) { Toast.warning('Falta el motivo', 'Indica por qué se rechaza la homologación.'); return; }
+      const checklistItemIds = [...container.querySelectorAll('.rech-doc:checked')].map(i => i.value);
+      const ok = await Confirm.ask({
+        title: 'Rechazar homologación',
+        text: `Se rechaza la homologación de ${nombre}. El plazo del caso se extiende 3 días hábiles más. ¿Confirmas?`,
+        variant: 'danger',
+        confirmText: 'Rechazar'
+      });
+      if (!ok) return;
+      // Mismo motivo que en verDetalleIngreso: btnRechConfirmar se capturó antes del
+      // `await` porque e.currentTarget queda en null una vez que el evento terminó de
+      // despacharse.
+      btnRechConfirmar.disabled = true; btnRechConfirmar.textContent = 'Rechazando...';
+      try {
+        await Data.rechazarHomologacionTraslado(s.id, state.user.id, motivo, checklistItemIds);
+        Toast.success('Homologación rechazada', 'Se avisó a quien solicitó el traslado.');
+        Data.notificarEvento('homologacion_rechazada', { solicitud_id: s.id }); // fire-and-forget
+        verDetalleTraslado(container, solicitudId, ctx);
+      } catch (err) {
+        console.error('[homologacion] rechazar traslado', err);
+        Toast.error('Error', err.message || 'No se pudo registrar el rechazo.');
+        btnRechConfirmar.disabled = false; btnRechConfirmar.textContent = 'Rechazar homologación';
       }
     });
   }

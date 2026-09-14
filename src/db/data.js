@@ -211,7 +211,7 @@ export const Data = {
   async listUsuarios() {
     const { data, error } = await supabase
       .from('perfiles')
-      .select('id, nombre, email, rol, centro_costo_id, es_gerente_operaciones, activo')
+      .select('id, nombre, email, rol, centro_costo_id, es_gerente_operaciones, es_gerente_prevencion, activo')
       .order('nombre');
     if (error) throw error;
     return data || [];
@@ -616,5 +616,99 @@ export const Data = {
       .update({ homologacion_traslado_aprobada_at: new Date().toISOString(), homologacion_traslado_aprobada_por: userId })
       .eq('id', solicitudId);
     if (error) throw error;
+  },
+
+  // ---------- Rechazo de homologación SST (ver migración 0016) ----------
+
+  /**
+   * Rechaza la homologación de un INGRESO (contratación): registra motivo +
+   * quién/cuándo, y opcionalmente qué ítems del checklist de homologación
+   * tienen el problema (eso decide si además se avisa a RRHH, ver Edge
+   * Function `notificar`). No cambia el estado de la contratación -- el
+   * caso sigue pendiente y se puede volver a evaluar. RLS (migración 0016)
+   * ya exige que el prevencionista sea el asignado al centro y que el caso
+   * no esté autorizado todavía.
+   */
+  async rechazarHomologacionIngreso(contratacionId, userId, motivo, checklistItemIds = []) {
+    const { data, error } = await supabase.from('homologacion_rechazos')
+      .insert({ contratacion_id: contratacionId, rechazado_por: userId, motivo })
+      .select('id').single();
+    if (error) throw error;
+    if (checklistItemIds.length) {
+      const { error: e2 } = await supabase.from('homologacion_rechazo_documentos')
+        .insert(checklistItemIds.map(id => ({ rechazo_id: data.id, checklist_item_id: id })));
+      if (e2) throw e2;
+    }
+    return data.id;
+  },
+
+  /** Igual que rechazarHomologacionIngreso() pero para un TRASLADO (solicitud). */
+  async rechazarHomologacionTraslado(solicitudId, userId, motivo, checklistItemIds = []) {
+    const { data, error } = await supabase.from('homologacion_rechazos')
+      .insert({ solicitud_id: solicitudId, rechazado_por: userId, motivo })
+      .select('id').single();
+    if (error) throw error;
+    if (checklistItemIds.length) {
+      const { error: e2 } = await supabase.from('homologacion_rechazo_documentos')
+        .insert(checklistItemIds.map(id => ({ rechazo_id: data.id, checklist_item_id: id })));
+      if (e2) throw e2;
+    }
+    return data.id;
+  },
+
+  /** Mapa rechazo_id -> [checklist_item_id] marcados en cada rechazo (uso interno). */
+  async _documentosDeRechazos(rechazoIds) {
+    const u = [...new Set(rechazoIds.filter(Boolean))];
+    if (!u.length) return new Map();
+    const { data, error } = await supabase
+      .from('homologacion_rechazo_documentos').select('rechazo_id, checklist_item_id').in('rechazo_id', u);
+    if (error) throw error;
+    const map = new Map();
+    (data || []).forEach(d => {
+      if (!map.has(d.rechazo_id)) map.set(d.rechazo_id, []);
+      map.get(d.rechazo_id).push(d.checklist_item_id);
+    });
+    return map;
+  },
+
+  /**
+   * Mapa contratacion_id -> [rechazos de homologación] (orden ascendente,
+   * cada uno con .documentos = [checklist_item_id] marcados). La cantidad
+   * de rechazos de cada caso es lo que extiende su plazo en el dashboard de
+   * Prevención (+3 días hábiles por rechazo, acumulable -- ver
+   * dashboard-prevencion.js) y lo que decide si se le muestra a RRHH en
+   * Contratación (ver contratacion-detalle.js). Sirve tanto para traer
+   * varios casos (dashboards) como uno solo (Homologación SST: pásale un
+   * arreglo de un elemento).
+   */
+  async rechazosPorContratacion(contratacionIds) {
+    const u = [...new Set(contratacionIds.filter(Boolean))];
+    if (!u.length) return new Map();
+    const { data, error } = await supabase
+      .from('homologacion_rechazos').select('*').in('contratacion_id', u).order('created_at');
+    if (error) throw error;
+    const docs = await this._documentosDeRechazos((data || []).map(r => r.id));
+    const map = new Map();
+    (data || []).forEach(r => {
+      if (!map.has(r.contratacion_id)) map.set(r.contratacion_id, []);
+      map.get(r.contratacion_id).push({ ...r, documentos: docs.get(r.id) || [] });
+    });
+    return map;
+  },
+
+  /** Igual que rechazosPorContratacion() pero para traslados (clave = solicitud_id). */
+  async rechazosPorSolicitudTraslado(solicitudIds) {
+    const u = [...new Set(solicitudIds.filter(Boolean))];
+    if (!u.length) return new Map();
+    const { data, error } = await supabase
+      .from('homologacion_rechazos').select('*').in('solicitud_id', u).order('created_at');
+    if (error) throw error;
+    const docs = await this._documentosDeRechazos((data || []).map(r => r.id));
+    const map = new Map();
+    (data || []).forEach(r => {
+      if (!map.has(r.solicitud_id)) map.set(r.solicitud_id, []);
+      map.get(r.solicitud_id).push({ ...r, documentos: docs.get(r.id) || [] });
+    });
+    return map;
   }
 };

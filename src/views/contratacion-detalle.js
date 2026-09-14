@@ -20,14 +20,15 @@ const TIPOS = [['administrativo', 'Administrativo'], ['operativo', 'Operativo']]
 export async function renderContratacionDetalle(container, contratacionId, backView) {
   container.innerHTML = '<div class="view-loading">Cargando contratación...</div>';
 
-  let c, sol, checklist, documentos, centros;
+  let c, sol, checklist, documentos, centros, rechazos;
   try {
     c = await Data.contratacionPorId(contratacionId);
-    [sol, checklist, documentos, centros] = await Promise.all([
+    [sol, checklist, documentos, centros, rechazos] = await Promise.all([
       Data.solicitudPorId(c.solicitud_id),
       Data.checklistDocumentos(),
       Data.documentosDeContratacion(contratacionId),
-      Data.listCentrosAdmin()
+      Data.listCentrosAdmin(),
+      Data.rechazosPorContratacion([contratacionId]).then(m => m.get(contratacionId) || [])
     ]);
   } catch (e) {
     console.error('[contratacion-detalle]', e);
@@ -41,6 +42,22 @@ export async function renderContratacionDetalle(container, contratacionId, backV
   const cerrada = c.estado === 'contratado' || c.estado === 'anulada';
   const prog = progresoDocumentos(checklist, documentos, c.tipo_trabajador);
   const docPorItem = new Map(documentos.map(d => [d.checklist_item_id, d]));
+
+  // Último rechazo de homologación con documento(s) marcado(s) (migración
+  // 0016) -- es lo único de un rechazo que le corresponde corregir a RRHH;
+  // el resto del historial (motivos sin documento) se ve en Homologación SST.
+  const checklistMap = new Map(checklist.map(i => [i.id, i]));
+  const ultimoRechazoDoc = [...rechazos].reverse().find(r => r.documentos.length > 0) || null;
+  const docsConProblema = new Set(ultimoRechazoDoc?.documentos || []);
+  const avisoRechazo = ultimoRechazoDoc ? `
+    <div class="card" style="border-left:3px solid #dc2626;">
+      <h3>⚠️ Prevención rechazó la homologación</h3>
+      <p class="hint">El ${fechaCorta(ultimoRechazoDoc.created_at)} se marcó un problema con:
+        <b>${ultimoRechazoDoc.documentos.map(id => escapeHtml(checklistMap.get(id)?.nombre || '—')).join(', ')}</b>.
+        Revísalo(s) y vuelve a subir el documento corregido.</p>
+      <p class="hint">"${escapeHtml(ultimoRechazoDoc.motivo)}"</p>
+      ${rechazos.length > 1 ? `<p class="hint muted">Esta contratación lleva ${rechazos.length} rechazo(s) de homologación en total.</p>` : ''}
+    </div>` : '';
 
   const dl = (pares) => `<div class="dl">${pares.filter(([, v]) => v != null && v !== '').map(([k, v]) =>
     `<div class="dl-row"><span class="dl-k">${escapeHtml(k)}</span><span class="dl-v">${escapeHtml(String(v))}</span></div>`).join('')}</div>`;
@@ -72,6 +89,7 @@ export async function renderContratacionDetalle(container, contratacionId, backV
           <div class="chk-nombre">${subido ? '✅' : (item.obligatorio ? '⬜' : '◽')} ${escapeHtml(item.nombre)}
             ${item.obligatorio ? '<span class="badge badge-neutral">Obligatorio</span>' : '<span class="badge badge-neutral">Opcional</span>'}
             ${item.requerido_homologacion ? '<span class="badge badge-info" title="Visible para el prevencionista (homologación)">SST</span>' : ''}
+            ${docsConProblema.has(item.id) ? '<span class="badge badge-danger" title="Prevención marcó este documento en el último rechazo">⚠️ Revisar</span>' : ''}
           </div>
           ${subido ? `<div class="muted">
               <button class="link-btn" data-doc="${doc.storage_path}">${escapeHtml(doc.nombre_archivo)}</button>
@@ -89,6 +107,8 @@ export async function renderContratacionDetalle(container, contratacionId, backV
       <span class="sol-id">${escapeHtml(c.nombre_candidato)}</span>
       ${estadoContratacionBadge(c.estado)}
     </div>
+
+    ${avisoRechazo}
 
     <div class="detalle-grid">
       <div class="card">

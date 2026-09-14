@@ -56,7 +56,7 @@ const TITLES = {
   'homologacion':         ['Homologación SST', 'Documentos de contratación para homologar ante el cliente'],
   'checklist-documentos': ['Checklist de documentos', 'Catálogo de documentos del proceso de contratación'],
   'dashboard-rrhh':       ['SLA Contratación', 'Tiempos de armado de contrato · meta: 3 días hábiles'],
-  'dashboard-prevencion': ['SLA Homologación', 'Tiempos de homologación SST · meta: 8 días hábiles'],
+  'dashboard-prevencion': ['SLA Homologación', 'Tiempos de homologación SST · meta: 9 días hábiles'],
   'usuarios':             ['Usuarios', 'Gestión de cuentas y roles'],
   'centros-costo':        ['Centros de costo', 'Obras y administradores de obra'],
   'cargos':               ['Cargos', 'Lista de cargos para las solicitudes'],

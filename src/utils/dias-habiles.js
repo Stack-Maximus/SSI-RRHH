@@ -3,7 +3,7 @@
  * nacionales) -- usado para medir el SLA de procesos internos:
  *   - RRHH: armar y subir el Contrato de Trabajo (meta: 3 días hábiles)
  *   - Prevención: homologación SST hasta autorizar el ingreso a obra
- *     (meta: 8 días hábiles)
+ *     (meta: 9 días hábiles, +3 días hábiles más por cada rechazo)
  *
  * Qué NO cubre (documentado también en NOTAS_CONTRATACION_SST.md):
  *

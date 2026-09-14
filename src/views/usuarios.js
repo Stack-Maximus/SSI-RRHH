@@ -1,8 +1,13 @@
 /**
  * Vista "Usuarios" (admin) · listar usuarios y gestionar su autorización:
- * rol, centro de costo, marca de Gerente de Operaciones y activo/inactivo.
- * El alta de la identidad (Auth) se hace invitando desde Supabase; acá se
- * gestiona solo el perfil/permisos.
+ * rol, centro de costo, marca de Gerente de Operaciones / Gerente de
+ * Prevención y activo/inactivo. El alta de la identidad (Auth) se hace
+ * invitando desde Supabase; acá se gestiona solo el perfil/permisos.
+ *
+ * Gerente de Prevención (migración 0016) recibe copia por correo de todo
+ * rechazo de homologación SST, sea cual sea el centro de costo -- a
+ * diferencia de Gerente de Operaciones, no es aprobador de nada, así que
+ * no participa del flujo de "Nueva solicitud".
  */
 
 import { Data } from '../db/data.js';
@@ -40,6 +45,7 @@ export async function renderUsuarios(container) {
       <td><select class="u-input" data-field="rol">${optsRol(u.rol)}</select></td>
       <td><select class="u-input" data-field="centro_costo_id">${optsCentros(u.centro_costo_id)}</select></td>
       <td class="u-center"><input type="checkbox" class="u-input" data-field="es_gerente_operaciones" ${u.es_gerente_operaciones ? 'checked' : ''}></td>
+      <td class="u-center"><input type="checkbox" class="u-input" data-field="es_gerente_prevencion" ${u.es_gerente_prevencion ? 'checked' : ''}></td>
       <td class="u-center"><input type="checkbox" class="u-input" data-field="activo" ${u.activo ? 'checked' : ''}></td>
     </tr>`).join('');
 
@@ -67,7 +73,7 @@ export async function renderUsuarios(container) {
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Usuario</th><th>Rol</th><th>Centro de costo</th><th>Gerente Op.</th><th>Activo</th></tr></thead>
+        <thead><tr><th>Usuario</th><th>Rol</th><th>Centro de costo</th><th>Gerente Op.</th><th>Gerente Prev.</th><th>Activo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;

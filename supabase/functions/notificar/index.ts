@@ -27,6 +27,12 @@
 //                         ingreso a obra (fin del plazo de homologación SST, solo aplica a ingreso
 //                         y traslado) -- avisa SOLO al solicitante original. Mismo criterio
 //                         contratacion_id/solicitud_id que 'rrhh_cerrado'.
+//   { type: 'homologacion_rechazada', solicitud_id | contratacion_id } -> Prevención rechazó la
+//                         homologación (motivo obligatorio, ver migración 0016 y homologacion.js) --
+//                         consulta el rechazo más reciente de ese caso (no confía en el payload) y
+//                         avisa: SIEMPRE al solicitante original y a todo perfil con
+//                         es_gerente_prevencion=true; a RRHH (rol='rrhh') SOLO si ese rechazo marcó
+//                         al menos un documento del checklist como el problema.
 //
 //  Deploy:  supabase functions deploy notificar
 //  Secrets: GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_FROM_ADDRESS
@@ -130,6 +136,79 @@ Deno.serve(async (req) => {
           correoHomologacionAutorizada(s.nombre ?? '', sol, nombre, appUrl));
       }
       return json({ ok: true, enviados: 1 });
+    }
+
+    // ---- Prevención rechazó la homologación -> avisa al solicitante y al
+    // Gerente de Prevención siempre; a RRHH solo si además se marcó algún
+    // documento del checklist como el problema (migración 0016).
+    if (type === 'homologacion_rechazada') {
+      if (!solicitud_id && !contratacion_id) {
+        return json({ error: 'Falta solicitud_id o contratacion_id.' }, 400);
+      }
+      const { sol, nombre } = await resolverSolicitudYNombre(admin, { solicitud_id, contratacion_id });
+      if (!sol) return json({ error: 'Solicitud no encontrada.' }, 404);
+
+      // El rechazo recién insertado por el frontend es el más reciente de
+      // este caso -- se vuelve a consultar acá (no se confía en el payload).
+      let ultimoQ = admin.from('homologacion_rechazos').select('id, motivo, rechazado_por, created_at')
+        .order('created_at', { ascending: false }).limit(1);
+      ultimoQ = contratacion_id ? ultimoQ.eq('contratacion_id', contratacion_id) : ultimoQ.eq('solicitud_id', solicitud_id);
+      const { data: ultimoArr } = await ultimoQ;
+      const ultimo = ultimoArr?.[0];
+      if (!ultimo) return json({ error: 'No se encontró el rechazo.' }, 404);
+
+      let countQ = admin.from('homologacion_rechazos').select('id', { count: 'exact', head: true });
+      countQ = contratacion_id ? countQ.eq('contratacion_id', contratacion_id) : countQ.eq('solicitud_id', solicitud_id);
+      const { count: totalRechazos } = await countQ;
+
+      const { data: docsMarcados } = await admin
+        .from('homologacion_rechazo_documentos').select('checklist_item_id').eq('rechazo_id', ultimo.id);
+      let nombresDocs: string[] = [];
+      if (docsMarcados?.length) {
+        const { data: items } = await admin
+          .from('documentos_checklist').select('id, nombre').in('id', docsMarcados.map((d) => d.checklist_item_id));
+        nombresDocs = (items ?? []).map((i) => i.nombre);
+      }
+
+      const { data: rechazadoPor } = await admin.from('perfiles').select('nombre').eq('id', ultimo.rechazado_por).single();
+      const { data: solicitante } = await admin
+        .from('perfiles').select('nombre, email, activo').eq('id', sol.solicitante_id).single();
+
+      const token = await graphToken();
+      let enviados = 0;
+
+      // Solicitante original -- siempre.
+      if (solicitante?.email && solicitante.activo !== false) {
+        await graphSend(token, solicitante.email,
+          `Se rechazó la homologación de tu solicitud ${sol.codigo}`,
+          correoHomologacionRechazada(solicitante.nombre ?? '', sol, nombre, ultimo, totalRechazos ?? 1, appUrl));
+        enviados++;
+      }
+
+      // Gerente de Prevención -- siempre, puede haber más de un perfil marcado.
+      const { data: gerentesPrevencion } = await admin
+        .from('perfiles').select('nombre, email').eq('es_gerente_prevencion', true).eq('activo', true);
+      for (const g of gerentesPrevencion ?? []) {
+        if (!g.email) continue;
+        await graphSend(token, g.email,
+          `Rechazo de homologación — solicitud ${sol.codigo}`,
+          correoHomologacionRechazadaGerente(g.nombre ?? '', sol, nombre, ultimo, rechazadoPor?.nombre ?? '', nombresDocs, totalRechazos ?? 1, appUrl));
+        enviados++;
+      }
+
+      // RRHH -- solo si el rechazo marcó documento(s) (así corrige/reemplaza).
+      if (nombresDocs.length) {
+        const { data: rrhh } = await admin.from('perfiles').select('nombre, email').eq('rol', 'rrhh').eq('activo', true);
+        for (const r of rrhh ?? []) {
+          if (!r.email) continue;
+          await graphSend(token, r.email,
+            `Revisar documento(s) — homologación rechazada, solicitud ${sol.codigo}`,
+            correoHomologacionRechazadaRRHH(r.nombre ?? '', sol, nombre, ultimo, nombresDocs, appUrl));
+          enviados++;
+        }
+      }
+
+      return json({ ok: true, enviados });
     }
 
     if (!solicitud_id) return json({ error: 'Falta solicitud_id.' }, 400);
@@ -333,6 +412,20 @@ const GRIS_ETIQUETA = '#8791AA';
 const GRIS_TEXTO = '#3D4258';
 const FUENTE = "'Segoe UI', Arial, Helvetica, sans-serif";
 
+// Escapa texto libre que escribe una persona (ej. el motivo de un rechazo de
+// homologación) antes de incrustarlo en el HTML del correo -- a diferencia
+// del resto de los valores que arman estas plantillas (nombres, códigos),
+// que salen de columnas más acotadas, un motivo es un párrafo libre y sí
+// puede traer caracteres que rompan el HTML si no se escapan.
+function escHtml(s: unknown): string {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function shell(inner: string) {
   return `<div style="background:#eef1f5;padding:32px 16px;font-family:${FUENTE}">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e3e7ee;border-radius:10px">
@@ -416,6 +509,57 @@ function correoHomologacionAutorizada(nombre: string, sol: any, nombreEspecifico
     ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
     ${boton(appUrl, 'Ver mis solicitudes')}`);
 }
+/** Al solicitante original: aviso simple del rechazo + cuántos van (informativo, sin detalle de documentos). */
+function correoHomologacionRechazada(nombre: string, sol: any, nombreEspecifico: string | null, rechazo: any, totalRechazos: number, appUrl: string) {
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">Prevención rechazó la homologación de tu solicitud${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ''}: ${badge('Rechazada', ROJO_BG, ROJO_FG)}</p>
+    <p style="margin:12px 0 0"><b>Motivo:</b> ${escHtml(rechazo.motivo)}</p>
+    ${infoCard([
+      ['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())],
+      ['N° de solicitud', sol.codigo],
+      ['Folio', sol.folio],
+      ['N° de rechazos', String(totalRechazos)],
+    ])}
+    <p style="margin:12px 0 0;font-size:13px;color:${GRIS_ETIQUETA}">El plazo de homologación de este caso se extiende automáticamente por cada rechazo.</p>
+    ${boton(appUrl, 'Ver mis solicitudes')}`);
+}
+
+/** Al Gerente de Prevención: copia completa (quién rechazó, motivo, documentos marcados si los hay). */
+function correoHomologacionRechazadaGerente(
+  nombre: string, sol: any, nombreEspecifico: string | null, rechazo: any,
+  rechazadoPorNombre: string, nombresDocs: string[], totalRechazos: number, appUrl: string,
+) {
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">${escHtml(rechazadoPorNombre) || 'Un prevencionista'} rechazó una homologación${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ''}.</p>
+    <p style="margin:12px 0 0"><b>Motivo:</b> ${escHtml(rechazo.motivo)}</p>
+    ${infoCard([
+      ['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())],
+      ['N° de solicitud', sol.codigo],
+      ['Folio', sol.folio],
+      ['Documento(s) marcado(s)', nombresDocs.length ? nombresDocs.map((n) => escHtml(n)).join(', ') : 'Ninguno'],
+      ['N° de rechazos de este caso', String(totalRechazos)],
+    ])}
+    ${boton(appUrl, 'Ver en SSI-RRHH')}`);
+}
+
+/** A RRHH: solo cuando el rechazo marcó documento(s) -- pide corregir/reemplazar. */
+function correoHomologacionRechazadaRRHH(nombre: string, sol: any, nombreEspecifico: string | null, rechazo: any, nombresDocs: string[], appUrl: string) {
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">Prevención rechazó la homologación${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ''} por un problema con ${nombresDocs.length === 1 ? 'este documento' : 'estos documentos'}:</p>
+    <p style="margin:8px 0 0"><b>${nombresDocs.map((n) => escHtml(n)).join(', ')}</b></p>
+    <p style="margin:12px 0 0"><b>Motivo:</b> ${escHtml(rechazo.motivo)}</p>
+    ${infoCard([
+      ['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())],
+      ['N° de solicitud', sol.codigo],
+      ['Folio', sol.folio],
+    ])}
+    <p style="margin:12px 0 0;font-size:13px;color:${GRIS_ETIQUETA}">Corrige o reemplaza el/los documento(s) -- Prevención vuelve a revisar el caso desde ahí.</p>
+    ${boton(appUrl, nombreEspecifico ? 'Ir a Contratación' : 'Ir a Solicitudes')}`);
+}
+
 function correoContratacionIniciada(nombre: string, contrat: any, sol: any, centro: any, appUrl: string) {
   const CANAL_LABELS: Record<string, string> = { recomendacion: 'Recomendación', reclutamiento_seleccion: 'Reclutamiento y selección' };
   const TIPO_TRAB_LABELS: Record<string, string> = { administrativo: 'Administrativo', operativo: 'Operativo' };

@@ -1511,3 +1511,45 @@ CRUD que ya tenía).
   aprobadores.
 - El "Bodeguero (Obra)" de la sección 14.5 queda como acción manual tuya después de importar -- ver el detalle
   ahí arriba con el número de fila exacto.
+
+
+## 15. Unificar en Solicitante los 5 tipos de "cambio"
+
+Me avisaste que, probando como `solicitante`, solo aparecían Ingreso y Traslado -- los otros 5 (Aumento de
+sueldo, Bono, Cambio de cargo, Renovación, Desvinculación) no salían. No era un bug: en la sección 14 de una
+conversación anterior, esos 5 se habían dejado exclusivos del rol `supervisor` (uno nuevo, separado de
+`solicitante`). Te pregunté cómo preferías dejarlo y tu respuesta fue clara: unificar todo en `solicitante`.
+
+**Qué cambié:**
+
+- `src/config.js` (`TIPOS_SOLICITUD_POR_ROL`): `solicitante` ahora ve los 7 tipos (antes 2). `supervisor` se
+  dejó exactamente igual que antes -- sigue viendo sus mismos 5 -- por si ya tienes alguna cuenta con ese rol
+  asignado; no le quité nada, solo dejé de ser el único camino.
+- **La puerta real no estaba en el frontend, estaba en la base de datos** -- el RPC `crear_solicitud_cambio()`
+  (el que crean Aumento de sueldo/Bono/Cambio de cargo/Renovación/Desvinculación) rechazaba de entrada a
+  cualquiera que no fuera `supervisor` o `admin`, con el mensaje "Solo un supervisor puede levantar este tipo
+  de solicitud." Si solo hubiera tocado el frontend, un solicitante iba a ver la pestaña nueva pero le iba a
+  fallar al enviar. Migración nueva **`0019_solicitante_tipos_cambio.sql`**: mismo RPC, un rol agregado a la
+  lista permitida (`solicitante`) y mensaje de error genérico. 100% aditiva sobre 0007/0014, no toca las
+  políticas de lectura (esas ya filtran por dueño, no por rol, así que ya funcionaban).
+
+**Qué NO cambié:** quién aprueba. Estos 5 tipos siguen aprobándose por una sola persona -- el administrador de
+obra del centro de costo del trabajador -- sin importar si quien los pidió fue un `solicitante` o un
+`supervisor`. Tampoco toqué el rol `supervisor` en sí (sigue existiendo, con el mismo alcance de antes); si en
+algún momento quieres eliminarlo del todo porque ya no lo necesitas como rol separado, es un paso aparte,
+avísame.
+
+**Verificación:** armé un arnés de prueba chico (Playwright, mismo método de siempre) enfocado solo en este
+cambio -- renderizar "Nueva solicitud" como `solicitante`/`supervisor`/`admin` y contar qué pestañas aparecen
+para cada uno, y de punta a punta: crear una solicitud de Aumento de sueldo como `solicitante`, confirmando
+que llama a `crearSolicitudCambio` (no a `crearSolicitud`, que es solo para Ingreso/Traslado) con el trabajador
+y el sueldo correctos, y que termina en "Solicitud creada". Las 8 verificaciones pasaron, cero errores de
+consola de la aplicación. El arnés era temporal y no quedó en esta entrega.
+
+### Cómo desplegar esto
+
+1. Corre **`supabase/migrations/0019_solicitante_tipos_cambio.sql`** (después de 0001-0018; no depende de
+   0017/0018, solo sigue el orden correlativo). No agrega ningún valor de enum, así que no necesita ir como
+   paso aparte.
+2. `npm install && npm run build` y el deploy de siempre en Vercel. No hay Edge Function que redesplegar para
+   este cambio puntual.

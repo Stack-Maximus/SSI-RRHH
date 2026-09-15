@@ -20,9 +20,14 @@ export const ROLES = {
 };
 
 // Tipos de solicitud que puede crear cada rol desde "Nueva solicitud"
-// (mismo formulario para todos; el segmento de tipos varía según el rol)
+// (mismo formulario para todos; el segmento de tipos varía según el rol).
+// Unificado en 'solicitante' (ve los 7) a pedido explícito -- antes los 5
+// tipos "de cambio" eran exclusivos de 'supervisor', ver migración
+// 0019_solicitante_tipos_cambio.sql (esa es la puerta real; esto de acá
+// solo decide qué pestañas se muestran). 'supervisor' se deja igual que
+// antes -- no se le quitó nada -- por si ya hay cuentas con ese rol.
 export const TIPOS_SOLICITUD_POR_ROL = {
-  solicitante: ['ingreso', 'traslado'],
+  solicitante: ['ingreso', 'traslado', 'aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'],
   supervisor:  ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'],
   admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion']
 };

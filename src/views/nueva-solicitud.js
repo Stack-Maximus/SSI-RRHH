@@ -1,9 +1,11 @@
 /**
- * Vista "Nueva solicitud" · formularios de Ingreso, Traslado (rol solicitante)
- * y Aumento de sueldo / Bono / Cambio de cargo / Renovación (rol supervisor,
- * sobre trabajadores ya contratados). El segmento de tipos visibles depende
- * del rol (TIPOS_SOLICITUD_POR_ROL en config.js). Ingreso/Traslado llaman a
- * crear_solicitud(); los 4 tipos de cambio llaman a crear_solicitud_cambio()
+ * Vista "Nueva solicitud" · formularios de Ingreso, Traslado, y Aumento de
+ * sueldo / Bono / Cambio de cargo / Renovación / Desvinculación (esta última
+ * tanda, sobre un trabajador ya contratado). El rol `solicitante` ve los 7
+ * (unificado -- antes los 5 "de cambio" eran solo de `supervisor`, ver
+ * migración 0019); el segmento de tipos visibles según el rol sigue viviendo
+ * en TIPOS_SOLICITUD_POR_ROL (config.js). Ingreso/Traslado llaman a
+ * crear_solicitud(); los 5 tipos de cambio llaman a crear_solicitud_cambio()
  * (aprueba solo el administrador de obra del centro del trabajador). Los
  * campos propios de cada tipo se guardan en `detalle` (JSONB).
  *

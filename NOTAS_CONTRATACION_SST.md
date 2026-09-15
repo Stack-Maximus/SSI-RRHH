@@ -1279,3 +1279,235 @@ algún documento, RRHH). `npm run build` sigue compilando limpio.
   límite -- si en algún momento quieres, por ejemplo, que después de N rechazos se escale a alguien más
   (además del Gerente de Prevención, que ya se avisa siempre) o que se bloquee "Autorizar" mientras haya un
   documento marcado sin reemplazar, son extensiones chicas sobre lo mismo -- avísame.
+
+
+## 14. Turnos desplegables, Editar solicitud, política de contraseña, Reclutamiento y selección, importador de Cargos
+
+Cinco pedidos de la misma conversación (cuatro por chat + la planilla de Cargos que subiste aparte). Antes de
+tocar código te pregunté 4 cosas puntuales sobre el alcance de "Reclutamiento y selección" (qué tan editable
+debía quedar una solicitud, cómo entregar los candidatos, qué pasa si se rechazan todos, y si la contratación
+se crea sola al elegir) -- elegiste en los 4 casos la opción recomendada, así quedó construido.
+
+### 14.1 Turno como lista desplegable
+
+El campo "Turno" de Ingreso y Traslado (antes texto libre) pasó a ser un `<select>` con 3 opciones fijas, cada
+una con su horario de lunes a jueves y el horario reducido del viernes en el mismo texto (se guarda tal cual en
+`detalle.turno`, igual que antes -- no hizo falta ninguna migración):
+
+- `Lunes a Jueves 08:00 a 17:30 · Viernes 08:00 a 17:00`
+- `Lunes a Jueves 07:30 a 17:00 · Viernes 07:30 a 16:30`
+- `Lunes a Jueves 21:00 a 06:00 · Viernes 22:00 a 06:00 (Turno Noche)`
+
+Archivo: `src/views/nueva-solicitud.js` (constante `TURNOS`). Si en algún momento cambian los horarios o hace
+falta un 4° turno, es esa única lista la que hay que tocar.
+
+### 14.2 Editar una solicitud ya creada
+
+Pediste poder editar una solicitud después de creada. Quedó así, según tu respuesta a la pregunta que te hice
+antes de construirlo:
+
+- **Solo el solicitante original**, y **solo mientras ningún aprobador haya decidido todavía** (ni aprobado ni
+  rechazado) -- apenas el primer aprobador toca la solicitud, deja de ser editable. En **Mis solicitudes**
+  aparece el botón "✏️ Editar" únicamente cuando se cumplen las dos condiciones.
+- **Los campos que definen quién aprueba quedan bloqueados**: tipo de solicitud, trabajador (traslado y los 4
+  tipos de cambio) y el/los centro(s) de costo. Se muestran de solo lectura con una insignia "🔒 fijo" -- el
+  resto de los campos (cargo, sueldo, turno, fechas, motivo, etc.) se edita libre. Esto es a propósito: el
+  código que resuelve automáticamente quién debe aprobar (`crear_solicitud()`) no vive en este repo -- no lo
+  vi nunca -- así que en vez de arriesgarme a recalcular aprobadores a ciegas si alguien cambiara el trabajador
+  o el centro de una solicitud ya creada, la migración `0017_editar_solicitud.sql` deja esos campos
+  explícitamente fuera del RPC `editar_solicitud()`. Si en algún momento quieres que también se pueda cambiar
+  el trabajador/centro de una solicitud (con el consiguiente recálculo de aprobadores), avísame y lo vemos
+  puntual -- necesito ver esa función para hacerlo bien.
+- El RPC (`editar_solicitud`, SECURITY DEFINER) revalida servidor-side las mismas 2 condiciones (dueño +
+  pendiente + sin decisiones) -- la pantalla solo oculta el botón de más, la barrera real está en la base.
+- Reusa exactamente los mismos formularios y validaciones que "Nueva solicitud" (los 7 `build*()` no se
+  tocaron) -- por eso no hubo que duplicar ninguna lógica de armado de `detalle`.
+
+Archivos: `supabase/migrations/0017_editar_solicitud.sql` (nuevo), `src/views/nueva-solicitud.js` (modo
+edición vía `Router.go('nueva-solicitud', {editId})`), `src/views/mis-solicitudes.js` (botón Editar),
+`src/db/data.js` (`editarSolicitud`), `src/core/router.js` (ahora reenvía `params` a la vista).
+
+### 14.3 Política de contraseña
+
+8 caracteres, 1 mayúscula, 1 símbolo y letras (tal cual lo pediste) -- **una sola regla real**, en
+`src/core/password-policy.js`, que usan los dos lugares donde alguien define una contraseña:
+
+- **Recuperar contraseña** (`reset-password.js`): checklist en vivo debajo del campo, se pone en verde ítem
+  por ítem a medida que se escribe.
+- **`Auth.updatePassword()`**: bloquea el envío con el mismo mensaje si falta algo (defensa del lado del
+  cliente).
+
+**Ojo, esto es del lado del cliente.** Para que no se pueda saltar llamando a la API de Supabase directo, te
+recomiendo reforzarla además en **Supabase Dashboard → Authentication → Policies → Password Requirements**
+(ahí se puede exigir mayúscula + minúscula + dígito + símbolo a nivel de servidor) -- es un ajuste de
+configuración, no de código, así que no se puede dejar prearmado desde acá. Si algún día activas esa regla del
+servidor con una combinación distinta a la del cliente, `Auth.errorToHuman()` ya tiene un mensaje genérico
+preparado para ese caso (el error que devuelve Supabase cuando el servidor rechaza por política).
+
+### 14.4 Reclutamiento y selección (tipo de ingreso nuevo, alternativo a "Iniciar contratación")
+
+Tu pedido: que RRHH pueda mandarle al solicitante original varias opciones de candidato (nombre + CV) para que
+elija una o las rechace, y que si elige una le llegue aviso a RRHH al toque para seguir el proceso.
+
+**Cómo funciona:**
+
+1. **RRHH inicia el proceso** (Contratación, misma tarjeta de solicitud donde ya está "+ Iniciar
+   contratación"): botón "+ Iniciar reclutamiento y selección", pide solo el tipo de trabajador
+   (administrativo/operativo). Es una alternativa a "Iniciar contratación" directa, no un reemplazo -- puedes
+   usar las dos formas en la misma solicitud si pide varias vacantes.
+2. **RRHH agrega candidatos** (nombre + CV, el formato que elegiste): filas repetibles, cada una sube su CV a
+   un bucket privado nuevo (`reclutamiento-cv`) antes de registrar el candidato. Al enviar, el solicitante
+   recibe un correo avisándole que tiene candidatos para revisar.
+3. **El solicitante elige o rechaza** (panel destacado arriba de "Mis solicitudes", visible mientras haya
+   candidatos pendientes de su decisión): ve nombre + botón para descargar el CV (URL firmada, expira en 5
+   minutos) y dos botones, Elegir/Rechazar.
+   - **Si elige uno**: se crea sola la contratación (canal "Reclutamiento y selección", mismos datos que hoy
+     completa RRHH a mano en "Iniciar contratación" -- el resto, RUT/teléfono/checklist, se sigue completando
+     después desde Contratación, sin cambios ahí) y le llega aviso a **todo perfil con rol RRHH** para que
+     sigan el proceso -- esta es la notificación que pediste explícitamente ("si el selecciona a 1 a RRHH le
+     debe de llegar ya esta notificación").
+   - **Si rechaza uno**, sigue viendo al resto de los candidatos pendientes de esa tanda.
+   - **Si rechaza a todos** los de la tanda vigente, el proceso queda "Todos rechazados" y RRHH recibe aviso
+     para agregar una tanda nueva (tal como elegiste en la pregunta que te hice) -- sin perder el historial de
+     la tanda anterior.
+4. **Se guarda registro completo**: quién agregó cada candidato, en qué tanda, cuándo decidió el solicitante y
+   qué decidió -- se ve tanto en la tarjeta de RRHH (Contratación) como en el panel del solicitante.
+
+**Diseño técnico** (migración `0018_reclutamiento.sql`, 100% aditiva): tablas `reclutamientos` (1 fila por
+proceso, estado `esperando_seleccion` / `candidato_elegido` / `todos_rechazados`) y
+`reclutamiento_candidatos` (1 fila por candidato ofrecido, agrupados por `tanda`); RPCs
+`reclutamiento_agregar_candidatos` y `reclutamiento_decidir_candidato` (SECURITY DEFINER, revalidan rol/dueño/
+estado igual que el resto de los RPC del proyecto); bucket de Storage `reclutamiento-cv` (privado, el
+solicitante solo puede descargar el CV de un candidato de un proceso suyo, nunca subir/borrar). RLS: RRHH/admin
+gestionan todo; el solicitante solo lee (nunca actualiza directo) los procesos/candidatos de sus propias
+solicitudes -- elegir/rechazar es siempre vía el RPC, porque necesita crear la contratación, algo que el
+solicitante no tiene permiso de hacer directo.
+
+**Un problema real que encontré revisando mi propio diseño antes de entregarlo (no me lo pediste, lo encontré
+pensando en casos límite):** si RRHH agregaba una tanda nueva de candidatos
+mientras la tanda anterior todavía tenía candidatos sin decidir, quedaban dos tandas "abiertas" al mismo
+tiempo -- y cuando el solicitante decidiera sobre uno de la tanda vieja, el sistema lo iba a rechazar con un
+error confuso ("este candidato es de una tanda anterior"), porque solo la tanda con el número más alto cuenta
+como vigente. Lo corregí agregando una revalidación en el RPC `reclutamiento_agregar_candidatos`: ahora
+rechaza agregar una tanda nueva si la vigente todavía tiene candidatos pendientes de decisión (o si el proceso
+ya cerró con un elegido) -- la pantalla de RRHH ya ocultaba el botón en esos casos, pero ahora también está
+protegido si alguien intentara saltarse la pantalla.
+
+**Asunción que dejé documentada en el código, sin poder confirmarla 100%:** al crear la contratación cuando se
+elige un candidato, el RPC no completa a mano la columna combinada `nombre_candidato` -- se apoya en que, tal
+como ya hace `Data.iniciarContratacion()` en producción (que tampoco la completa), algo en tu base arma ese
+nombre solo a partir de `nombres_candidato`/`apellido_paterno_candidato`/`apellido_materno_candidato` (mismo
+patrón que `trabajadores.nombre`, de la migración `0015_nombre_separado.sql`). Como `iniciarContratacion` ya
+funciona hoy en producción con ese mismo comportamiento, es una inferencia bien fundada, no una adivinanza al
+aire -- pero si `reclutamiento_decidir_candidato` fallara con un error de "null value in column
+nombre_candidato", esa es la señal de que hay que completarlo a mano ahí también (está anotado en el propio
+SQL, con el error exacto a buscar).
+
+**Notificaciones nuevas** (Edge Function `notificar`, mismo mecanismo de siempre -- Microsoft Graph, fire-and-
+forget): `reclutamiento_opciones` (al solicitante, cuando RRHH manda candidatos), `reclutamiento_elegido` (a
+RRHH, cuando el solicitante elige), `reclutamiento_todos_rechazados` (a RRHH, cuando rechaza a todos). Mismo
+diseño visual (logo, tarjeta de datos, botón) que el resto de los correos del sistema.
+
+**Verificación hecha antes de esta entrega:** además de releer cada pieza más de una vez (RLS, los 2 RPC, el
+bucket de Storage), armé un arnés de prueba aparte (mismo método que ya vengo usando en este proyecto) que
+carga las 5 pantallas reales (Contratación, Mis solicitudes, Nueva solicitud crear/editar, Recuperar
+contraseña) contra datos de prueba fijos, sin tocar Supabase, y con un navegador real controlado por script
+(Playwright) corrí **51 verificaciones** de punta a punta: que el botón "Agregar candidatos"/"Agregar otra
+tanda" aparezca solo cuando corresponde (proceso nuevo o tanda rechazada completa) y se oculte mientras haya
+pendientes o ya haya un elegido; el flujo completo de RRHH -- crear proceso, agregar 2 candidatos con su CV
+real (agregar fila, quitar fila, subir archivo), que se avise al solicitante -- de punta a punta; en el panel
+del solicitante, rechazar un candidato (y que NO se avise a RRHH porque todavía queda uno pendiente) y después
+elegir al que queda (y que SÍ se cree la contratación y se avise a RRHH); que el botón "Ver CV" pida la URL
+firmada con la ruta de archivo correcta; los 3 turnos del dropdown, exactos; en modo edición, que el centro de
+costo quede bloqueado con el candado y el valor correcto viaje igual, que el turno y el cargo se precarguen
+bien, y que al guardar se llame a `editarSolicitud` (nunca a `crearSolicitud`) y navegue de vuelta a Mis
+solicitudes; y la política de contraseña, que el checklist en vivo marque cada regla en verde/gris
+correctamente para una contraseña débil, una sin símbolo y una completa. Las 51 pasaron, cero errores de
+consola del navegador en las 5 pantallas. `npm run build` sigue compilando limpio (90 módulos). El arnés de
+prueba (`_test_harness/`) era temporal y no quedó en el proyecto que te entrego.
+
+### 14.5 Importador de Cargos (planilla del organigrama)
+
+Subiste `Cargos_Metalium.xlsx` (87 cargos, sacados de los organigramas GEN-DIR-06 y OPE-DIR-06) pidiendo "un
+Script para limpiar los cargos y alimentarlos, ya que estos son los aprobados".
+
+**Decisión que tomé sin preguntarte primero (te lo explico acá para que la puedas revisar):** en vez de un
+script aparte (Node, con la service_role key, corrido una sola vez fuera de la app), lo construí como un
+**importador dentro de la pantalla Cargos** (botón "Importar planilla"), con el mismo patrón ya probado que
+usa el importador de Trabajadores: lee el Excel, limpia espacios/duplicados, compara contra los cargos que ya
+existen en tu base y te muestra una **vista previa categorizada** (nuevos / a reactivar / a renombrar / sin
+cambios / a desactivar) **antes de aplicar nada** -- nada se toca hasta que aprietas "Aplicar cambios". Elegí
+esto en vez del script porque: (a) es reutilizable -- la próxima vez que el organigrama cambie, no necesitas
+pedirme un script nuevo, solo vuelves a importar la planilla actualizada; (b) no expone la `service_role key`
+fuera de Supabase (un script así necesitaría esa clave, que es la que salta todos los permisos); y (c) revisas
+y apruebas los cambios antes de que se apliquen, en vez de que un script los aplique todos de una. Si de verdad
+prefieres un script aparte igual, avísame y lo preparo -- esto no es algo que no se pueda hacer, elegí la otra
+forma porque me pareció mejor para el uso que le vas a dar, no porque la que pediste no se pudiera.
+
+**Qué hace exactamente:** toma la columna "Cargo" (detecta la hoja correcta aunque haya otras hojas, como la
+"Notas" que trae tu archivo), recorta espacios, empareja el espaciado alrededor de "/" (ej. "Modelador/
+Proyectista" → "Modelador / Proyectista") y descarta duplicados exactos dentro de la misma planilla (se
+mantiene la primera aparición, se cuentan las que se ignoraron). Después compara contra los cargos que ya
+tienes: lo que no existe se ofrece como alta; lo que existe pero estaba desactivado se ofrece para reactivar;
+lo que existe con otra capitalización/espaciado se ofrece para corregir el nombre; y **lo que hoy está activo
+pero no aparece en la planilla se ofrece para desactivar** (no se borra -- mismo criterio "activo" que el
+resto del sistema), con un checkbox propio por fila (marcado por defecto) para que puedas destildar cualquiera
+que quieras conservar igual aunque no venga en esa planilla puntual.
+
+**Encontré una inconsistencia real en tu archivo, que te conviene corregir a mano después de importar (el
+importador no la puede resolver solo, porque a nivel de texto son idénticas):** la hoja "Notas" de tu propio
+archivo (nota 4) dice que el cargo "Bodeguero" de logística ya existía, y que el de Gerencia de Operaciones se
+agregó como **"Bodeguero (Obra)"** para no confundirlos -- y la nota 3 lista explícitamente "Bodeguero (Obra)"
+entre los 26 cargos operativos. Pero en la hoja "Cargos" **las dos filas dicen literalmente "Bodeguero"**, sin
+el "(Obra)":
+
+- Fila N° 43 -- está agrupada junto a Topógrafo, Técnico en Manutención, Operador de Máquina, Capataz de
+  Obra, Maestro Gasfíter... (los cargos operativos de terreno) -- **esta es la que, según tu propia nota,
+  debería decir "Bodeguero (Obra)"**.
+- Fila N° 81 -- está agrupada junto a "Chofer Logístico" -- esta es la de logística, la que sí debe quedar
+  como "Bodeguero" a secas.
+
+Como para el importador las dos filas son el mismo texto, las trata como un duplicado y arma un solo cargo
+"Bodeguero" (ignora la segunda aparición, igual que cualquier otro duplicado de la planilla) -- **"Bodeguero
+(Obra)" no se va a crear solo**. Después de importar, te recomiendo agregarlo a mano una vez (campo "Nuevo
+cargo", arriba de la tabla) -- es un solo cargo, no vale la pena que te arme un caso especial en el código
+para una situación que no se va a repetir. Aparte de este caso, tu archivo trae otros 7 cargos que se repiten
+exactos dentro de la misma hoja (Ingeniero Oficina Técnica, Ingeniero de Calidad, Asistente Oficina Técnica,
+Arquitecto Coordinador, Coordinador BIM, Arquitecto Modelador / Proyectista, Ingeniero Ambiental) -- esos sí
+los maneja bien solo (se ignora la repetición, se avisa en el resumen "N duplicado(s) en la planilla"), porque
+ahí ambas filas son realmente el mismo cargo, a diferencia de Bodeguero.
+
+No hizo falta ninguna migración nueva para esto -- reusa los métodos que ya existían (`Data.crearCargo`,
+`Data.actualizarCargo`). Archivo: `src/views/cargos.js` (reescrito para agregar el importador, sin tocar el
+CRUD que ya tenía).
+
+### Cómo desplegar esta entrega
+
+1. Corre **`supabase/migrations/0017_editar_solicitud.sql`** y **`supabase/migrations/0018_reclutamiento.sql`**
+   (en ese orden). Ninguna de las dos agrega un valor de enum nuevo, así que -- a diferencia de otras
+   migraciones anteriores -- **no** hace falta correrlas como paso aparte; puedes pegar las dos seguidas en el
+   SQL Editor. `0018` además crea sola el bucket de Storage `reclutamiento-cv` con sus políticas -- no hay que
+   crearlo a mano en el Dashboard.
+2. Vuelve a desplegar la Edge Function `notificar` (mismo procedimiento de siempre -- CLI, no Dashboard, carpeta
+   `Notificar` con mayúscula, ver el detalle completo en la sección 1 si te hace falta repasarlo):
+   ```
+   supabase functions deploy Notificar
+   ```
+   Los 3 tipos de correo nuevos (`reclutamiento_opciones`, `reclutamiento_elegido`,
+   `reclutamiento_todos_rechazados`) no van a funcionar hasta que hagas este paso.
+3. `npm install && npm run build` (no agregué ninguna dependencia nueva a `package.json`, así que el
+   `npm install` es solo por costumbre, no porque haga falta bajar algo nuevo) y el deploy de siempre en
+   Vercel para el resto de los archivos (`src/`).
+4. No hay ninguna variable `.env` nueva, ni ningún casillero nuevo que asignar en Usuarios/Centros de costo
+   para que esto funcione (a diferencia de, por ejemplo, el prevencionista o el Gerente de Prevención).
+
+### Decisiones que tomé y quedan abiertas para ajustar
+
+- **Reclutamiento y selección** no tiene un tope de vacantes: puedes iniciar tantos procesos (y/o
+  contrataciones directas) como quieras sobre la misma solicitud, igual criterio que ya usa "Iniciar
+  contratación" hoy -- no lo acoté a la `cantidad` pedida en la solicitud.
+- El campo de trabajador/centro en modo edición quedó bloqueado por la razón explicada en 14.2 (no tengo a la
+  vista `crear_solicitud()`); si me compartes esa función puedo evaluar permitir editarlos con recálculo de
+  aprobadores.
+- El "Bodeguero (Obra)" de la sección 14.5 queda como acción manual tuya después de importar -- ver el detalle
+  ahí arriba con el número de fila exacto.

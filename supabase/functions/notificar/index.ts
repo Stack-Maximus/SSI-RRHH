@@ -33,6 +33,17 @@
 //                         avisa: SIEMPRE al solicitante original y a todo perfil con
 //                         es_gerente_prevencion=true; a RRHH (rol='rrhh') SOLO si ese rechazo marcó
 //                         al menos un documento del checklist como el problema.
+//   { type: 'reclutamiento_opciones',          reclutamiento_id } -> RRHH agregó una tanda de
+//                         candidatos (primera vez o tras un rechazo total, ver migración 0018 y
+//                         reclutamiento_agregar_candidatos()) -- avisa SOLO al solicitante original
+//                         de la solicitud dueña de ese proceso, con la cantidad de candidatos.
+//   { type: 'reclutamiento_elegido',           reclutamiento_id } -> el solicitante eligió un
+//                         candidato (reclutamiento_decidir_candidato(), decision='elegido') -- ya se
+//                         creó la contratación sola; avisa a todo perfil con rol='rrhh' para que
+//                         sigan el proceso (RUT, checklist de documentos, etc.) desde Contratación.
+//   { type: 'reclutamiento_todos_rechazados',  reclutamiento_id } -> el solicitante rechazó a todos
+//                         los candidatos de la tanda vigente -- avisa a todo perfil con rol='rrhh'
+//                         para que agregue una tanda nueva.
 //
 //  Deploy:  supabase functions deploy notificar
 //  Secrets: GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_FROM_ADDRESS
@@ -57,7 +68,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
 
   try {
-    const { type, solicitud_id, contratacion_id } = await req.json();
+    const { type, solicitud_id, contratacion_id, reclutamiento_id } = await req.json();
     if (!type) return json({ error: 'Falta type.' }, 400);
 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -208,6 +219,70 @@ Deno.serve(async (req) => {
         }
       }
 
+      return json({ ok: true, enviados });
+    }
+
+    // ---- Reclutamiento y selección (ver migración 0018) ----
+    // Van antes del resto porque usan reclutamiento_id, no solicitud_id.
+    if (type === 'reclutamiento_opciones') {
+      if (!reclutamiento_id) return json({ error: 'Falta reclutamiento_id.' }, 400);
+      const { data: recl } = await admin
+        .from('reclutamientos').select('id, solicitud_id').eq('id', reclutamiento_id).single();
+      if (!recl) return json({ error: 'Proceso de reclutamiento no encontrado.' }, 404);
+      const { data: sol } = await admin
+        .from('solicitudes').select('id, codigo, folio, solicitante_id').eq('id', recl.solicitud_id).single();
+      if (!sol) return json({ error: 'La solicitud de este proceso ya no existe.' }, 404);
+      const { count: pendientes } = await admin
+        .from('reclutamiento_candidatos').select('id', { count: 'exact', head: true })
+        .eq('reclutamiento_id', reclutamiento_id).eq('decision', 'pendiente');
+      const { data: s } = await admin
+        .from('perfiles').select('nombre, email, activo').eq('id', sol.solicitante_id).single();
+      if (!s?.email || s.activo === false) {
+        return json({ ok: true, skipped: true, reason: 'solicitante sin correo o inactivo' });
+      }
+      const token = await graphToken();
+      await graphSend(token, s.email,
+        `Candidatos para tu solicitud ${sol.codigo}`,
+        correoReclutamientoOpciones(s.nombre ?? '', sol, pendientes ?? 0, appUrl));
+      return json({ ok: true, enviados: 1 });
+    }
+
+    if (type === 'reclutamiento_elegido' || type === 'reclutamiento_todos_rechazados') {
+      if (!reclutamiento_id) return json({ error: 'Falta reclutamiento_id.' }, 400);
+      const { data: recl } = await admin
+        .from('reclutamientos').select('id, solicitud_id, contratacion_id').eq('id', reclutamiento_id).single();
+      if (!recl) return json({ error: 'Proceso de reclutamiento no encontrado.' }, 404);
+      const { data: sol } = await admin
+        .from('solicitudes').select('id, codigo, folio').eq('id', recl.solicitud_id).single();
+      if (!sol) return json({ error: 'La solicitud de este proceso ya no existe.' }, 404);
+
+      const { data: rrhh } = await admin.from('perfiles').select('nombre, email').eq('rol', 'rrhh').eq('activo', true);
+      const token = await graphToken();
+      let enviados = 0;
+
+      if (type === 'reclutamiento_elegido') {
+        let candidatoNombre = '';
+        if (recl.contratacion_id) {
+          const { data: c } = await admin
+            .from('contrataciones').select('nombre_candidato').eq('id', recl.contratacion_id).single();
+          candidatoNombre = c?.nombre_candidato ?? '';
+        }
+        for (const r of rrhh ?? []) {
+          if (!r.email) continue;
+          await graphSend(token, r.email,
+            `Candidato elegido — solicitud ${sol.codigo}`,
+            correoReclutamientoElegido(r.nombre ?? '', sol, candidatoNombre, appUrl));
+          enviados++;
+        }
+      } else {
+        for (const r of rrhh ?? []) {
+          if (!r.email) continue;
+          await graphSend(token, r.email,
+            `Se rechazaron todos los candidatos — solicitud ${sol.codigo}`,
+            correoReclutamientoTodosRechazados(r.nombre ?? '', sol, appUrl));
+          enviados++;
+        }
+      }
       return json({ ok: true, enviados });
     }
 
@@ -576,4 +651,29 @@ function correoContratacionIniciada(nombre: string, contrat: any, sol: any, cent
       ['Solicitud', sol.folio || sol.codigo],
     ])}
     ${boton(appUrl, 'Ir a Homologación SST')}`);
+}
+
+/** Al solicitante: RRHH mandó una tanda de candidatos para que elija o rechace. */
+function correoReclutamientoOpciones(nombre: string, sol: any, cantidad: number, appUrl: string) {
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">RRHH envió ${cantidad} candidato${cantidad === 1 ? '' : 's'} para tu solicitud de ingreso. Revísalos y elige uno, o recházalos si ninguno calza.</p>
+    ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    ${boton(appUrl, 'Ver candidatos')}`);
+}
+/** A RRHH: el solicitante eligió candidato -- ya se creó la contratación sola. */
+function correoReclutamientoElegido(nombre: string, sol: any, candidatoNombre: string, appUrl: string) {
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">El solicitante eligió a ${candidatoNombre ? `<b>${escHtml(candidatoNombre)}</b>` : 'un candidato'} para la solicitud ${sol.codigo}. Ya se creó la contratación -- continúa el proceso desde ahí.</p>
+    ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    ${boton(appUrl, 'Ir a Contratación')}`);
+}
+/** A RRHH: el solicitante rechazó a todos los candidatos de la tanda vigente. */
+function correoReclutamientoTodosRechazados(nombre: string, sol: any, appUrl: string) {
+  return shell(`
+    <p style="margin:0 0 4px">Hola ${nombre},</p>
+    <p style="margin:0">El solicitante rechazó a todos los candidatos enviados para la solicitud ${sol.codigo}. Puedes agregar una nueva tanda de candidatos cuando quieras.</p>
+    ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    ${boton(appUrl, 'Ir a Solicitudes')}`);
 }

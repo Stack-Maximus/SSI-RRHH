@@ -112,6 +112,18 @@ export const ESTADO_CONTRATACION_LABELS = {
   anulada: 'Anulada'
 };
 
+// Proceso de Reclutamiento y selección (migración 0018_reclutamiento.sql).
+export const ESTADO_RECLUTAMIENTO_LABELS = {
+  esperando_seleccion: 'Esperando selección',
+  candidato_elegido: 'Candidato elegido',
+  todos_rechazados: 'Todos rechazados'
+};
+export const DECISION_CANDIDATO_LABELS = {
+  pendiente: 'Pendiente',
+  elegido: 'Elegido',
+  rechazado: 'Rechazado'
+};
+
 // Codificación de documentos del Sistema de Gestión (formato Metalium):
 // "codigo" identifica el FORMULARIO/plantilla (fijo); "folioPrefijo" es el
 // prefijo del correlativo de cada comprobante emitido (el número lo asigna

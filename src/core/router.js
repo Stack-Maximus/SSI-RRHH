@@ -65,13 +65,18 @@ const TITLES = {
 };
 
 export const Router = {
-  go(view) {
+  // `params` es opcional y se reenvía tal cual a la vista (renderFn(content,
+  // params)) -- lo usa por ahora "nueva-solicitud" para abrirse en modo
+  // edición ({editId}), ver mis-solicitudes.js. Las vistas que no lo
+  // necesitan simplemente ignoran el segundo argumento.
+  go(view, params) {
     if (!state.user) return;
 
     const allowed = ROLES[state.user.role].menu;
     if (!allowed.includes(view)) {
       Toast.warning('Acceso denegado', 'Tu rol no tiene acceso a esa vista.');
       view = allowed[0];
+      params = undefined;
     }
 
     state.currentView = view;
@@ -85,7 +90,7 @@ export const Router = {
     try {
       const renderFn = VIEWS[view];
       if (!renderFn) throw new Error(`Vista no registrada: ${view}`);
-      renderFn(content);
+      renderFn(content, params);
     } catch (e) {
       console.error(`[router] Error en vista ${view}:`, e);
       content.innerHTML = `

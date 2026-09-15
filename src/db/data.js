@@ -143,6 +143,23 @@ export const Data = {
     return Array.isArray(data) ? data[0] : data;
   },
 
+  /**
+   * Edita una solicitud ya creada. El RPC (migración 0017) revalida server-side
+   * que sea el dueño, que siga pendiente y que ningún aprobador haya decidido
+   * todavía -- la UI también lo chequea para no mostrar el botón de más, pero
+   * la regla real vive ahí, no acá. Solo cambia motivo/detalle: el tipo, el
+   * trabajador y el/los centro(s) quedan fijos (definen quién aprueba).
+   */
+  async editarSolicitud(solicitudId, { motivo, detalle }) {
+    const { data, error } = await supabase.rpc('editar_solicitud', {
+      p_solicitud_id: solicitudId,
+      p_motivo: motivo ?? null,
+      p_detalle: detalle || {}
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data[0] : data;
+  },
+
   /** Solicitudes creadas por el usuario, con sus aprobaciones */
   async misSolicitudes(userId) {
     const { data: sols, error } = await supabase
@@ -280,13 +297,16 @@ export const Data = {
    * propio Contrato de Trabajo y su propia homologación), no por solicitud
    * completa; en el resto de los tipos (traslado y los 5 sin documento
    * propio) es siempre por solicitud_id.
-   *   type: 'rrhh_cerrado' | 'homologacion_autorizada'
+   *   type: 'rrhh_cerrado' | 'homologacion_autorizada' | 'homologacion_rechazada'
+   *       | 'reclutamiento_opciones' | 'reclutamiento_elegido' | 'reclutamiento_todos_rechazados'
+   * Los 3 tipos de reclutamiento usan reclutamiento_id en vez de solicitud_id/contratacion_id.
    */
-  async notificarEvento(type, { solicitud_id, contratacion_id } = {}) {
+  async notificarEvento(type, { solicitud_id, contratacion_id, reclutamiento_id } = {}) {
     try {
       const body = { type };
       if (solicitud_id) body.solicitud_id = solicitud_id;
       if (contratacion_id) body.contratacion_id = contratacion_id;
+      if (reclutamiento_id) body.reclutamiento_id = reclutamiento_id;
       const { data, error } = await supabase.functions.invoke('Notificar', { body });
       if (error) console.warn('[notificar] EF error:', error.message);
       else if (data?.error) console.warn('[notificar] devolvió:', data.error);
@@ -710,5 +730,91 @@ export const Data = {
       map.get(r.solicitud_id).push({ ...r, documentos: docs.get(r.id) || [] });
     });
     return map;
+  },
+
+  // ---------- Reclutamiento y selección (ver migración 0018) ----------
+
+  /** Inicia un proceso de reclutamiento para una vacante de una solicitud de ingreso aprobada */
+  async iniciarReclutamiento({ solicitud_id, tipo_trabajador }, userId) {
+    const { data, error } = await supabase.from('reclutamientos')
+      .insert({ solicitud_id, tipo_trabajador, creado_por: userId })
+      .select('*').single();
+    if (error) throw error;
+    return data;
+  },
+
+  /** Mapa solicitud_id -> [reclutamientos], solo para las solicitudes pedidas */
+  async reclutamientosPorSolicitud(solIds) {
+    const u = [...new Set(solIds.filter(Boolean))];
+    if (!u.length) return new Map();
+    const { data, error } = await supabase
+      .from('reclutamientos').select('*').in('solicitud_id', u).order('created_at');
+    if (error) throw error;
+    const map = new Map();
+    (data || []).forEach(r => { if (!map.has(r.solicitud_id)) map.set(r.solicitud_id, []); map.get(r.solicitud_id).push(r); });
+    return map;
+  },
+
+  /** Mapa reclutamiento_id -> [candidatos] (todas las tandas, orden ascendente) */
+  async candidatosDeReclutamiento(reclutamientoIds) {
+    const u = [...new Set(reclutamientoIds.filter(Boolean))];
+    if (!u.length) return new Map();
+    const { data, error } = await supabase
+      .from('reclutamiento_candidatos').select('*').in('reclutamiento_id', u).order('tanda').order('created_at');
+    if (error) throw error;
+    const map = new Map();
+    (data || []).forEach(c => { if (!map.has(c.reclutamiento_id)) map.set(c.reclutamiento_id, []); map.get(c.reclutamiento_id).push(c); });
+    return map;
+  },
+
+  /** Sube el CV de un candidato al bucket 'reclutamiento-cv' (antes de registrar el candidato) */
+  async subirCvCandidato(reclutamientoId, file) {
+    const safeName = file.name.replace(/[^\w.\-]+/g, '_');
+    const path = `${reclutamientoId}/${Date.now()}_${safeName}`;
+    const up = await supabase.storage.from('reclutamiento-cv').upload(path, file, { upsert: false });
+    if (up.error) throw up.error;
+    return { cv_storage_path: path, cv_nombre_archivo: file.name };
+  },
+
+  async urlCvCandidato(storagePath, expiresIn = 300) {
+    const { data, error } = await supabase.storage
+      .from('reclutamiento-cv').createSignedUrl(storagePath, expiresIn);
+    if (error) throw error;
+    return data.signedUrl;
+  },
+
+  /** Agrega una tanda de candidatos (la primera o una nueva tras un rechazo total) */
+  async agregarCandidatosReclutamiento(reclutamientoId, candidatos) {
+    const { data, error } = await supabase.rpc('reclutamiento_agregar_candidatos', {
+      p_reclutamiento_id: reclutamientoId,
+      p_candidatos: candidatos
+    });
+    if (error) throw error;
+    return data || [];
+  },
+
+  /** El solicitante elige ('elegido') o rechaza ('rechazado') un candidato de la tanda vigente */
+  async reclutamientoDecidir(candidatoId, decision) {
+    const { data, error } = await supabase.rpc('reclutamiento_decidir_candidato', {
+      p_candidato_id: candidatoId,
+      p_decision: decision
+    });
+    if (error) throw error;
+    return data; // id de la contratación creada (si decision='elegido'), o null
+  },
+
+  /**
+   * Procesos de reclutamiento esperando selección, con sus candidatos
+   * pendientes de la tanda vigente -- para "Mis solicitudes". Sin filtro
+   * explícito por usuario: RLS (migración 0018) ya solo deja ver los
+   * procesos de las solicitudes propias.
+   */
+  async misReclutamientosPendientes() {
+    const { data: recl, error } = await supabase
+      .from('reclutamientos').select('*').eq('estado', 'esperando_seleccion');
+    if (error) throw error;
+    if (!recl.length) return [];
+    const candMap = await this.candidatosDeReclutamiento(recl.map(r => r.id));
+    return recl.map(r => ({ ...r, candidatos: (candMap.get(r.id) || []).filter(c => c.decision === 'pendiente') }));
   }
 };

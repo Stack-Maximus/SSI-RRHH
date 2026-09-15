@@ -13,6 +13,7 @@ import { Toast, Confirm } from '../ui/toast.js';
 import { renderLogin } from '../views/login.js';
 import { renderForgotPassword } from '../views/forgot-password.js';
 import { renderResetPassword } from '../views/reset-password.js';
+import { mensajeReglasFaltantes } from './password-policy.js';
 
 // Minutos de inactividad antes de cerrar la sesión automáticamente.
 // Cambiá este número para ajustar el tiempo.
@@ -172,8 +173,9 @@ export const Auth = {
       errorEl.hidden = false;
       return;
     }
-    if (password.length < 8) {
-      errorEl.textContent = 'La contraseña debe tener al menos 8 caracteres.';
+    const mensajeFaltante = mensajeReglasFaltantes(password);
+    if (mensajeFaltante) {
+      errorEl.textContent = mensajeFaltante;
       errorEl.hidden = false;
       return;
     }
@@ -220,6 +222,9 @@ export const Auth = {
     }
     if (msg.includes('New password should be different')) return 'La nueva contraseña debe ser distinta a la anterior.';
     if (msg.includes('Password should be at least')) return 'La contraseña debe tener al menos 8 caracteres.';
+    if (msg.toLowerCase().includes('password should contain') || msg.toLowerCase().includes('character of each')) {
+      return 'La contraseña no cumple los requisitos de seguridad (mayúscula, minúscula, número o símbolo) configurados en Supabase.';
+    }
     return msg;
   }
 };

@@ -23,9 +23,10 @@ import { fechaCorta, tipoLabel } from '../ui/solicitud-format.js';
 import { diasHabilesEntre } from '../utils/dias-habiles.js';
 import { pct, barras, slaBadge, prioridadFila, fechaAprobacionCompleta, agregarPorClave } from '../ui/sla-format.js';
 import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
-import { TIPOS_SOLICITUD_SIN_DOCUMENTO } from '../config.js';
+import { TIPOS_SOLICITUD_SIN_DOCUMENTO, DIAS_HABILES_PROCESO_RRHH } from '../config.js';
 
-const SLA_DIAS = 3;
+// Mismo valor que el aviso "hasta 3 días hábiles" de Traslado / Cambio de cargo.
+const SLA_DIAS = DIAS_HABILES_PROCESO_RRHH;
 const TIPOS_GENERICOS = TIPOS_SOLICITUD_SIN_DOCUMENTO;
 const TODOS_LOS_TIPOS = ['ingreso', 'traslado', ...TIPOS_GENERICOS];
 const SIN_INICIAR = '— (sin iniciar)';

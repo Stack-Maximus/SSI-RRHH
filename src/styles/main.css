@@ -9,5 +9,6 @@
 @import './solicitudes.css';
 @import './contratacion.css';
 @import './comprobante.css';
+@import './sgc-doc.css';
 /* brand.css va al FINAL para sobreescribir fondos y aplicar la identidad Metalium */
 @import './brand.css';

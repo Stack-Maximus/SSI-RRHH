@@ -11,7 +11,8 @@ import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
 import { pesos, fechaCorta } from '../ui/solicitud-format.js';
 import { renderTrabajadorPerfil } from './trabajador-perfil.js';
-import { TIPOS_CONTRATO } from '../config.js';
+import { TIPOS_CONTRATO, DOTACION_CODIGOS } from '../config.js';
+import { nuevoLibroSgc, hojaSgc, descargarLibroSgc } from '../ui/xlsx-sgc.js';
 
 let trabajadores = [], centros = [];
 let porRut = new Map();          // rut normalizado -> trabajador
@@ -195,64 +196,174 @@ function pintarTabla(container) {
 
 const HEADERS = ['RUT', 'Nombres', 'Apellido Paterno', 'Apellido Materno', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Sueldo Líquido Pactado', 'Tipo de Contrato', 'Fecha Término Contrato', 'Contrato Indefinido'];
 
-function descargarPlantilla() {
-  const c0 = centros[0];
-  const aoa = [
-    HEADERS,
-    ['12.345.678-9', 'Juan', 'Pérez', 'González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo ?? '10', c0?.nombre ?? '', 650000, 'Obra o Faena', '2027-03-31', 'No'],
-    ['98.765.432-1', 'María', 'Soto', 'Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000, 'Indefinido', '', 'Sí']
-  ];
-  const wsT = XLSX.utils.aoa_to_sheet(aoa);
-  wsT['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 16 }, { wch: 20 }, { wch: 18 }];
+// Formato de cada columna en los Excel con el diseño del SGC (ui/xlsx-sgc.js).
+// Los títulos son HEADERS tal cual: el importador los reconoce por nombre.
+const FORMATO_COLUMNAS = {
+  'RUT':                    { icono: 'id-card', px: 120, estilo: 'fuerte' },
+  'Nombres':                { icono: 'user', px: 140, estilo: 'normal' },
+  'Apellido Paterno':       { icono: 'user', px: 125, estilo: 'normal' },
+  'Apellido Materno':       { icono: 'user', px: 125, estilo: 'normal' },
+  'Profesión':              { icono: 'graduation-cap', px: 140, estilo: 'normal' },
+  'Cargo':                  { icono: 'briefcase', px: 145, estilo: 'normal' },
+  'Código Centro Costo':    { icono: 'hash', px: 120, alinear: 'centro', estilo: 'normal' },
+  'Nombre Centro Costo':    { icono: 'building-2', px: 175, estilo: 'normal' },
+  'Sueldo Líquido Pactado': { icono: 'banknote', px: 125, alinear: 'centro', estilo: 'normal', numFmt: '"$" #,##0' },
+  'Tipo de Contrato':       { icono: 'file-signature', px: 125, estilo: 'normal' },
+  'Fecha Término Contrato': { icono: 'calendar-x', px: 125, alinear: 'centro', estilo: 'normal' },
+  'Contrato Indefinido':    { icono: 'infinity', px: 120, estilo: 'pildora' }
+};
+const columnasXlsx = () => HEADERS.map(h => ({ titulo: h, ...FORMATO_COLUMNAS[h] }));
+const IDX_TIPO_CONTRATO = HEADERS.indexOf('Tipo de Contrato');
+const IDX_INDEFINIDO = HEADERS.indexOf('Contrato Indefinido');
 
-  const inst = [
-    ['PLANTILLA MAESTRA DE TRABAJADORES · SSI-RRHH Metalium'],
-    [],
-    ['Carga la dotación COMPLETA (no solo los nuevos).'],
-    ['El RUT es la clave: si ya existe en el sistema se ACTUALIZA; si es nuevo se CREA.'],
-    ['Antes de aplicar, la app te muestra trabajador por trabajador qué cambia.'],
-    ['"Nombres" / "Apellido Paterno" / "Apellido Materno": van en columnas separadas. "Apellido Materno" puede ir vacío; "Nombres" y "Apellido Paterno" no deberían quedar vacíos.'],
-    ['El "Código Centro Costo" debe coincidir con uno de la lista de abajo.'],
-    ['"Sueldo Líquido Pactado": número, sin $ ni puntos (ej: 650000).'],
-    ['"Tipo de Contrato": Plazo Fijo / Obra o Faena / Indefinido (déjalo vacío si no se conoce). Si queda en "Obra o Faena", el sistema exige un anexo de renovación antes de poder trasladar a ese trabajador.'],
-    ['"Fecha Término Contrato": formato AAAA-MM-DD. Se dejará vacía si el contrato es indefinido.'],
-    ['"Contrato Indefinido": Sí / No. Si es "Sí", el trabajador no entra al aviso de próximos vencimientos.'],
-    [],
-    ['CÓDIGOS DE CENTRO DE COSTO VÁLIDOS'],
-    ['Código', 'Nombre'],
-    ...centros.map(c => [String(c.codigo), c.nombre])
-  ];
-  const wsI = XLSX.utils.aoa_to_sheet(inst);
-  wsI['!cols'] = [{ wch: 16 }, { wch: 40 }];
+const FECHA_CHILE = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' });
+const hoyIso = () => FECHA_CHILE.format(new Date());                       // AAAA-MM-DD
+const hoyDMY = () => hoyIso().split('-').reverse().join('/');              // DD/MM/AAAA
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, wsT, 'Trabajadores');
-  XLSX.utils.book_append_sheet(wb, wsI, 'Instrucciones');
-  XLSX.writeFile(wb, 'Plantilla_Trabajadores_SSI-RRHH.xlsx');
-  Toast.success('Plantilla descargada', 'Llénala y súbela con "Importar planilla".');
+// Encabezado + identificación del registro (sección 1) de cada Excel.
+function docDotacion(cual, fichasExtra, tituloTabla) {
+  const { codigo, titulo } = DOTACION_CODIGOS[cual];
+  const fecha = hoyDMY();
+  return {
+    encabezado: { titulo, codigo, fecha, revision: '00' },
+    pie: { codigo, nombre: titulo },
+    secciones: [
+      { titulo: 'Identificación del registro', fichas: [
+        { etiqueta: 'Registro', valor: titulo, icono: 'file-text' },
+        { etiqueta: 'Fecha del documento', valor: fecha, icono: 'calendar-days' },
+        { etiqueta: 'Código', valor: codigo, icono: 'barcode' },
+        { etiqueta: 'Revisión', valor: '00', icono: 'settings' },
+        ...fichasExtra
+      ] },
+      { titulo: tituloTabla, tabla: true }
+    ]
+  };
 }
 
-function exportar() {
-  const filas = trabajadores.map(t => ({
-    'RUT': t.rut,
-    'Nombres': t.nombres ?? '',
-    'Apellido Paterno': t.apellido_paterno ?? '',
-    'Apellido Materno': t.apellido_materno ?? '',
-    'Profesión': t.profesion,
-    'Cargo': t.cargo,
-    'Código Centro Costo': idToCentro.get(t.centro_costo_id)?.codigo ?? '',
-    'Nombre Centro Costo': idToCentro.get(t.centro_costo_id)?.nombre ?? '',
-    'Sueldo Líquido Pactado': t.sueldo_liquido ?? '',
-    'Tipo de Contrato': t.tipo_contrato ?? '',
-    'Fecha Término Contrato': t.fecha_termino_contrato ?? '',
-    'Contrato Indefinido': t.contrato_indefinido ? 'Sí' : 'No'
-  }));
-  const ws = XLSX.utils.json_to_sheet(filas);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Trabajadores');
-  const hoy = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `Maestro_Trabajadores_${hoy}.xlsx`);
-  Toast.success('Maestro exportado', '');
+async function conBoton(id, texto, fn) {
+  const btn = document.getElementById(id);
+  const original = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = texto; }
+  try { await fn(); } finally { if (btn) { btn.disabled = false; btn.textContent = original; } }
+}
+
+async function descargarPlantilla() {
+  await conBoton('btn-plantilla', 'Generando...', async () => {
+    try {
+      const c0 = centros[0];
+      const ejemplos = [
+        ['12.345.678-9', 'Juan', 'Pérez', 'González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo != null ? String(c0.codigo) : '10', c0?.nombre ?? '', 650000, 'Obra o Faena', '2027-03-31', 'No'],
+        ['98.765.432-1', 'María', 'Soto', 'Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000, 'Indefinido', '', 'Sí']
+      ];
+      const wb = nuevoLibroSgc();
+
+      // Hoja 1 (la que lee el importador): la tabla para llenar
+      await hojaSgc(wb, {
+        nombreHoja: 'Trabajadores',
+        doc: docDotacion('plantilla', [
+          { etiqueta: 'Clave de carga', valor: 'RUT (si existe se actualiza; si es nuevo se crea)', icono: 'id-card' },
+          { etiqueta: 'Instrucciones', valor: 'Ver la hoja "Instrucciones"', icono: 'list-checks' }
+        ], 'Detalle del registro'),
+        columnas: columnasXlsx(),
+        filas: ejemplos,
+        filasVacias: 18,
+        conPie: false,        // la tabla crece hacia abajo: el pie va solo en la impresión
+        autofiltro: false,
+        validaciones: [
+          { columna: IDX_TIPO_CONTRATO, lista: TIPOS_CONTRATO },
+          { columna: IDX_INDEFINIDO, lista: ['Sí', 'No'] }
+        ]
+      });
+
+      // Hoja 2: instrucciones + centros de costo válidos
+      const docInst = docDotacion('plantilla', [], 'Centros de costo válidos');
+      docInst.secciones[0] = { titulo: 'Instrucciones de llenado', fichas: [
+        { etiqueta: 'Dotación completa', valor: 'Carga la dotación COMPLETA, no solo los trabajadores nuevos.', icono: 'users', ancho: 'completo' },
+        { etiqueta: 'RUT', valor: 'Es la clave: si ya existe en el sistema se ACTUALIZA; si es nuevo se CREA. Antes de aplicar, la app muestra trabajador por trabajador qué cambia.', icono: 'id-card', ancho: 'completo' },
+        { etiqueta: 'Nombres y apellidos', valor: '"Nombres", "Apellido Paterno" y "Apellido Materno" van en columnas separadas. "Apellido Materno" puede ir vacío; "Nombres" y "Apellido Paterno" no deberían quedar vacíos.', icono: 'user', ancho: 'completo' },
+        { etiqueta: 'Código Centro Costo', valor: 'Debe coincidir con uno de la tabla "Centros de costo válidos", más abajo.', icono: 'hash', ancho: 'completo' },
+        { etiqueta: 'Sueldo Líquido Pactado', valor: 'Número, sin $ ni puntos (ej.: 650000).', icono: 'banknote', ancho: 'completo' },
+        { etiqueta: 'Tipo de Contrato', valor: 'Plazo Fijo / Obra o Faena / Indefinido (vacío si no se conoce). Si queda en "Obra o Faena", el sistema exige un anexo de renovación antes de poder trasladar a ese trabajador.', icono: 'file-signature', ancho: 'completo' },
+        { etiqueta: 'Fecha Término Contrato', valor: 'Formato AAAA-MM-DD. Se deja vacía si el contrato es indefinido.', icono: 'calendar-x', ancho: 'completo' },
+        { etiqueta: 'Contrato Indefinido', valor: 'Sí / No. Si es "Sí", el trabajador no entra al aviso de próximos vencimientos.', icono: 'infinity', ancho: 'completo' },
+        { etiqueta: 'Filas de ejemplo', valor: 'Las 2 filas de ejemplo de la hoja "Trabajadores" se deben borrar o reemplazar antes de importar.', icono: 'message-square', ancho: 'completo' }
+      ] };
+      await hojaSgc(wb, {
+        nombreHoja: 'Instrucciones',
+        doc: docInst,
+        columnas: [
+          { titulo: 'Código', icono: 'hash', px: 200, alinear: 'centro', estilo: 'fuerte' },
+          { titulo: 'Nombre', icono: 'building-2', px: 700, estilo: 'normal' }
+        ],
+        filas: centros.map(c => [String(c.codigo), c.nombre]),
+        autofiltro: false,
+        vacia: 'No hay centros de costo registrados.'
+      });
+
+      await descargarLibroSgc(wb, 'Plantilla_Trabajadores_SSI-RRHH.xlsx');
+      Toast.success('Plantilla descargada', 'Llénala y súbela con "Importar planilla".');
+    } catch (e) {
+      console.error('[trabajadores] plantilla', e);
+      Toast.error('Error', 'No se pudo generar la plantilla.');
+    }
+  });
+}
+
+async function exportar() {
+  await conBoton('btn-export', 'Generando...', async () => {
+    try {
+      const filas = trabajadores.map((t, i) => [
+        i + 1,
+        t.rut,
+        t.nombres ?? '',
+        t.apellido_paterno ?? '',
+        t.apellido_materno ?? '',
+        t.profesion ?? '',
+        t.cargo ?? '',
+        idToCentro.get(t.centro_costo_id)?.codigo != null ? String(idToCentro.get(t.centro_costo_id).codigo) : '',
+        idToCentro.get(t.centro_costo_id)?.nombre ?? '',
+        t.sueldo_liquido ?? '',
+        t.tipo_contrato ?? '',
+        t.fecha_termino_contrato ?? '',
+        t.contrato_indefinido ? 'Sí' : 'No'
+      ]);
+      const nCentros = new Set(trabajadores.map(t => t.centro_costo_id).filter(Boolean)).size;
+      const wb = nuevoLibroSgc();
+      await hojaSgc(wb, {
+        nombreHoja: 'Trabajadores',
+        doc: docDotacion('maestro', [
+          { etiqueta: 'Total de registros', valor: `${trabajadores.length} trabajador(es)`, icono: 'database' },
+          { etiqueta: 'Centros de costo', valor: `${nCentros} centro(s) con dotación`, icono: 'building-2' }
+        ], 'Detalle del registro'),
+        columnas: [{ titulo: 'N°', px: 46, alinear: 'centro', estilo: 'numero' }, ...columnasXlsx()],
+        filas,
+        vacia: 'No hay trabajadores en el maestro.'
+      });
+      await descargarLibroSgc(wb, `Maestro_Trabajadores_${hoyIso()}.xlsx`);
+      Toast.success('Maestro exportado', '');
+    } catch (e) {
+      console.error('[trabajadores] exportar', e);
+      Toast.error('Error', 'No se pudo generar el maestro de trabajadores.');
+    }
+  });
+}
+
+/**
+ * Fila (0-based, absoluta en la hoja) donde están los títulos de la tabla:
+ * la primera que tenga una celda "RUT". Las planillas con el diseño del SGC
+ * traen el encabezado como imagen arriba, así que los títulos no están en la
+ * fila 1; las planillas antiguas (títulos en la fila 1) siguen funcionando.
+ */
+function filaDeTitulos(ws) {
+  if (!ws || !ws['!ref']) return null;
+  const rango = XLSX.utils.decode_range(ws['!ref']);
+  for (let r = rango.s.r; r <= Math.min(rango.e.r, rango.s.r + 80); r++) {
+    for (let c = rango.s.c; c <= rango.e.c; c++) {
+      const celda = ws[XLSX.utils.encode_cell({ r, c })];
+      if (celda && celda.v != null && normKey(celda.v) === 'rut') return r;
+    }
+  }
+  return null;
 }
 
 async function importar(file, container) {
@@ -262,8 +373,11 @@ async function importar(file, container) {
   try {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    parsed = XLSX.utils.sheet_to_json(ws, { defval: null });
+    // La hoja con la tabla: la llamada "Trabajadores" o, si no, la primera.
+    const nombreHoja = wb.SheetNames.find(n => normKey(n) === 'trabajadores') ?? wb.SheetNames[0];
+    const ws = wb.Sheets[nombreHoja];
+    const fila0 = filaDeTitulos(ws);
+    parsed = XLSX.utils.sheet_to_json(ws, fila0 != null ? { defval: null, range: fila0 } : { defval: null });
   } catch (e) {
     console.error('[trabajadores] parse', e);
     Toast.error('Archivo inválido', 'No se pudo leer la planilla.');

@@ -76,6 +76,7 @@ Deno.serve(async (req) => {
       : { data: [] as any[] };
     const pmap = new Map((pers ?? []).map((p) => [p.id, p.nombre]));
 
+    const FECHA_CHILE = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' });
     const filas: FilaMaestro[] = (sols ?? []).map((s) => {
       const propias = aprsPorSol.get(s.id) ?? [];
       const aprobadas = propias.filter((a) => a.decision === 'aprobado').length;
@@ -93,7 +94,7 @@ Deno.serve(async (req) => {
         solicitante: pmap.get(s.solicitante_id) ?? '—',
         trabajador: s.trabajador_id ? (tmap.get(s.trabajador_id) ?? '—') : '',
         centro: cmap.get(s.centro_origen_id) ?? '',
-        creada: (s.created_at ?? '').toString().slice(0, 10),
+        creada: s.created_at ? FECHA_CHILE.format(new Date(s.created_at)) : '', // AAAA-MM-DD en hora de Chile
         aprobResumen: propias.length ? `${aprobadas}/${propias.length} · ${dur(totalMs) || '—'}` : 'Sin aprob.',
       };
     });

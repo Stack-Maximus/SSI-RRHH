@@ -1553,3 +1553,229 @@ consola de la aplicación. El arnés era temporal y no quedó en esta entrega.
    paso aparte.
 2. `npm install && npm run build` y el deploy de siempre en Vercel. No hay Edge Function que redesplegar para
    este cambio puntual.
+
+
+## 16. Ajustes a los formularios de Nueva solicitud (oct. 2026)
+
+Revisando el proyecto en vivo me pasaste una lista de ajustes a los 7 formularios. **Ojo con la carpeta:** la
+primera que conectaste (`C:\Proyectos\Nueva carpeta\SSI-RRHH`) es una copia antigua -- llega solo hasta la
+migración 0011 y no tiene Desvinculación ni nada de las secciones 10 a 15. Trabajé sobre
+`C:\Proyectos\SSI-RRHH\SSI-RRHH`, que es el repo git conectado a GitHub (`Stack-Maximus/SSI-RRHH`, rama `main`)
+y tiene todo hasta la 0019. Si hubiera editado la otra, al publicarla se habrían perdido varias entregas.
+
+### La sección "Restricción de sueldo en Traslado (por cargo)" queda descartada
+
+La entrega anterior (casillero "Oculta sueldo en traslado" por cargo, migración
+`0020_restriccion_sueldo_traslado.sql`) nunca llegó al repo, y con este pedido ya no hace falta: Traslado deja
+de tener sueldos. **No la apliques.** Por si alguna vez se corrió su SQL en Supabase, la migración nueva
+elimina su trigger (era lo único que seguiría metiendo un sueldo en los traslados nuevos); si nunca se corrió,
+esa parte no hace nada.
+
+### Qué cambió, por formulario
+
+- **Ingreso**: "Tipo de contrato" ya no ofrece "Obra o Faena" (quedan Plazo Fijo e Indefinido -- lista propia
+  `TIPOS_CONTRATO_INGRESO`; la lista completa sigue en el maestro de Trabajadores y en Renovación). "Turno"
+  suma **"Artículo 22 (sin limitación de jornada)"**. Nuevo **"Horario de colación"** (30 o 60 minutos,
+  obligatorio, se guarda en `detalle.colacion`). Se quitó el campo "Horario": el turno ya lo define.
+- **Traslado**: sin "Sueldo líquido actual", sin "Nuevo sueldo líquido", sin "Horario" y sin el bloque de
+  Bonos (nocturno y trato). Quedan trabajador, cargo, fecha, obras de origen y destino, turno y modificaciones
+  contractuales. Arriba del formulario, un aviso: *"Desde que la solicitud queda aprobada, el traslado tiene
+  una demora de hasta 3 días hábiles como máximo."* El bloqueo por "Obra o Faena sin anexo" (sección 10) sigue
+  igual.
+- **Aumento de sueldo**: sin sueldo actual, sin nuevo sueldo y sin fecha efectiva. Un solo campo obligatorio,
+  **"Monto del aumento de sueldo ($)"** (`detalle.monto_aumento`), más el motivo opcional. El formulario ya no
+  muestra ningún sueldo.
+- **Bono**: eliminado. No aparece para ningún rol (solicitante, supervisor ni admin) y la base de datos
+  también lo rechaza (`crear_solicitud_cambio()`, migración 0020) -- mismo criterio de la sección 15: la
+  puerta real está en la base, no en la pantalla.
+- **Cambio de cargo**: mismo aviso de 3 días hábiles que Traslado.
+- **Renovación**: al elegir el trabajador se completan solos su **tipo de contrato actual** (del maestro de
+  Trabajadores, solo lectura) y su **fecha de término actual** (editable). Nuevo selector obligatorio **"Tipo
+  de renovación"**, que se preselecciona según el contrato actual:
+  - *A plazo* → pide **Fecha de culminación** (tiene que ser posterior a la fecha de término actual).
+  - *Por obra o faena* → pide **Hito de la obra**, texto libre que escribe el solicitante.
+  - *Pasa a indefinido* → no pide nada más.
+
+  El tipo de contrato actual queda guardado en la solicitud, así que aparece en el comprobante, el PDF y el
+  correo.
+- **Desvinculación**: se quitó "Causal disciplinaria (Art. 160)" de la lista de causales.
+
+### Lo que hace la base de datos (migración 0020)
+
+`0020_ajustes_formularios.sql` tiene solo lo que tiene que quedar firme en la base:
+
+1. `crear_solicitud_cambio()` sin `'bono'` (mismo cuerpo que en 0019). El valor del enum no se borra: los
+   bonos ya creados se siguen viendo, aprobando y rechazando normal.
+2. Reemplaza la función del trigger de renovación de 0008 para que, al **aprobarse** una renovación, además
+   de la fecha deje el tipo de contrato del trabajador en lo que se renovó: *a plazo* → Plazo Fijo con la nueva
+   fecha; *por obra o faena* → Obra o Faena, sin fecha (termina con el hito, así que no entra al aviso de
+   vencimientos); *indefinido* → Indefinido. En el caso Obra o Faena hay un detalle: el trigger de 0013 vuelve
+   a marcar "requiere anexo" cuando un contrato *cambia* a Obra o Faena, pero esta renovación aprobada **es**
+   el anexo, así que la función lo deja apagado sin depender del orden en que corren los triggers. Las
+   renovaciones antiguas (sin tipo de renovación) se comportan exactamente igual que antes.
+3. Borra el trigger de la entrega descartada, si existe.
+
+### Las solicitudes ya creadas no se tocan
+
+No hay ninguna migración que reescriba datos. Las solicitudes antiguas siguen mostrando sus campos tal cual
+(Horario, sueldos y bonos de traslado, sueldo actual/nuevo de aumento, renovaciones sin tipo) en Mis
+solicitudes, Bandeja, Solicitudes, comprobante, PDF, Excel y correo -- las filas vacías no se muestran, así
+que una solicitud nueva simplemente no las trae. Al **editar** una solicitud pendiente antigua:
+
+- Un Bono pendiente ya no se puede editar (no tiene formulario); sigue su aprobación normal. En Mis
+  solicitudes no aparece el botón Editar para ese caso.
+- Si traía un valor que ya no está en la lista ("Obra o Faena" en un Ingreso, la causal disciplinaria, un turno
+  antiguo), el valor se mantiene seleccionado: editar no lo cambia sin que nadie lo note.
+- Un aumento antiguo precarga la diferencia (nuevo menos actual) como monto del aumento.
+- Al guardar, el detalle queda con los campos nuevos; los quitados (horario, bonos, sueldos) se pierden en esa
+  solicitud puntual.
+
+### Decisiones que tomé y quedan abiertas para ajustar
+
+- **Colación obligatoria**, sin valor por defecto, para que nadie la deje en 30 o 60 sin mirarla. Es solo de
+  Ingreso: no la pediste en Traslado.
+- **"Artículo 22" también aparece en Traslado**, porque la lista de turnos es la misma para los dos.
+- **Renovación conserva "Pasa a indefinido"** como tercera opción. Mencionaste solo a plazo y obra o faena,
+  pero esa opción la habías pedido antes (sección 5) y no quise quitarla sin preguntarte. Si sobra, se saca.
+- **Al aprobarse una renovación se actualiza el tipo de contrato del trabajador.** No lo pediste
+  explícitamente, pero si no, la próxima renovación mostraría un "tipo de contrato actual" que ya no es
+  verdad.
+- **Aumento de sueldo no guarda el sueldo actual**: el aprobador ve solo el monto del aumento. Si quieres que
+  el aprobador o RRHH vean también el sueldo base (sin que el solicitante lo vea), se puede completar en la
+  base al crear la solicitud.
+- **Los 3 días hábiles** son la misma meta del dashboard "SLA Contratación" (RRHH). Quedaron en una sola
+  constante (`DIAS_HABILES_PROCESO_RRHH`, `src/config.js`) que usan el aviso y el dashboard, para que no se
+  desalineen.
+- **De paso**: la lista de trabajadores que carga "Nueva solicitud" ya no trae el sueldo líquido (ningún
+  formulario lo usa ahora), así que el navegador del solicitante deja de recibirlo. Sí trae ahora fecha de
+  término e indefinido, para la Renovación.
+
+### Verificación hecha antes de esta entrega
+
+- **Pantalla**: un arnés de prueba temporal (no queda en el proyecto) monta las vistas reales "Nueva
+  solicitud" y "Mis solicitudes" con datos de ejemplo, y Playwright corrió **52 verificaciones**: pestañas por
+  rol (sin Bono), opciones de cada lista, campos que ya no están, los avisos de 3 días hábiles, el payload
+  exacto que llega a la base en los 6 formularios, las validaciones de Renovación (fecha, hito, tipo), el
+  bloqueo de Obra o Faena en Traslado, el modo edición con solicitudes antiguas, el botón Editar en Mis
+  solicitudes, y cómo se muestran las solicitudes nuevas y antiguas. Todas pasaron, sin errores de consola
+  inesperados.
+- **Base de datos**: corrí 0008, 0013, 0019 y la 0020 nueva en un Postgres 16 local con un esquema mínimo que
+  imita el tuyo, y probé: Bono rechazado y Aumento aceptado con su aprobador; las 3 renovaciones nuevas y las 2
+  antiguas, aprobadas, dejando el maestro como corresponde (incluido el "requiere anexo" apagado al pasar de
+  Plazo Fijo a Obra o Faena); que el traslado de un trabajador con su anexo al día se pueda crear sin sueldo
+  inyectado; que el trigger de la entrega descartada se elimine; y que la migración se puede correr dos veces
+  sin error. No es tu base real (no tengo acceso a ella), así que conviene una prueba real después de
+  aplicarla.
+- `npm run build` compila sin errores.
+
+### Cómo desplegar esto
+
+1. Corre **`supabase/migrations/0020_ajustes_formularios.sql`** en el SQL Editor (después de 0001-0019; no
+   agrega valores de enum, va de una sola vez).
+2. Vuelve a desplegar **`Notificar`** y **`comprobante-pdf`** por CLI: los dos usan
+   `_shared/solicitud-detalle.ts`, que cambió (colación, monto del aumento, tipo de renovación). Mismo
+   procedimiento de siempre, ver la sección 1 (nombre `Notificar` con mayúscula).
+3. Haz commit y push del repo a `main`; Vercel publica solo. No hay dependencias ni variables `.env` nuevas.
+4. Pendiente: el manual de usuario (`Manual_Usuario_SSI-RRHH.docx`) todavía muestra los formularios anteriores.
+
+## 17. Diseño "Concept 3" en los exportables PDF y Excel (oct. 2026)
+
+Pediste que los exportables tengan el diseño de `Concept 3_CORREGIDO.pdf`, calcado, respetando los campos de
+cada uno. Alcance acordado: **Solicitudes y Trabajadores** (las exportaciones de Evaluación de Personal quedan
+como estaban). Encabezado literal del concepto: **"SISTEMA DE GESTIÓN DE CALIDAD"** y **"SGC"**.
+
+### Qué documentos cambian
+
+| Documento | Formato | Dónde |
+|---|---|---|
+| Comprobante de solicitud (los 7 tipos) | PDF (descarga y adjunto del correo de aprobación a RRHH) | Edge Functions `comprobante-pdf` y `Notificar` |
+| Comprobante de solicitud | Pantalla (el mismo documento, página por página) | vista Comprobante |
+| Maestro de solicitudes | PDF | Edge Function `maestro-pdf` |
+| Maestro de solicitudes | Excel | Solicitudes → "Exportar maestro (Excel)" |
+| Maestro de trabajadores | Excel | Trabajadores → "Descargar maestro (Excel)" |
+| Plantilla de carga de trabajadores | Excel (hojas "Trabajadores" e "Instrucciones") | Trabajadores → "Descargar plantilla" |
+
+Todos llevan lo mismo que el concepto: encabezado (logo, panel azul con sistema/título/SGC, tarjeta de
+Código/Fecha/Revisión), **1 · Identificación del registro** con fichas e íconos, **2 · Detalle del registro**
+(fichas o tabla con fila de títulos azul, íconos, filas cebra y "píldora" de estado) y el pie
+`METALIUM | código | nombre` con "Página X de N". El comprobante agrega **3 · Aprobaciones** (tabla con
+aprobador, decisión, asignado, decidido y tiempo de respuesta).
+
+### Cómo está hecho (un solo dibujo para PDF, pantalla y Excel)
+
+- `supabase/functions/_shared/sgc-layout.js` es la **única fuente de la geometría**: medidas, colores,
+  tipografías, íconos y el armado de páginas (corte de tablas largas repitiendo la fila de títulos, una tabla
+  corta pasa entera a la hoja siguiente). Las medidas salen del concepto (1 unidad = 1 px del concepto, la
+  hoja A4 mide 1416 de ancho).
+- `sgc-documentos.js` arma el **contenido** del comprobante y del maestro (qué fichas, qué columnas). Lo usan
+  el PDF y la pantalla, así que muestran exactamente lo mismo.
+- Tres "pintores": `sgc-pdf.ts` (PDF vectorial con pdf-lib, en las Edge Functions), `src/ui/sgc-render.js`
+  (SVG en pantalla y PNG para el Excel) y `src/ui/xlsx-sgc.js` (Excel con ExcelJS).
+- **Tipografías**: Montserrat (títulos) y Fira Sans (texto), licencia libre SIL OFL. El concepto usa Montserrat;
+  para el texto, Fira Sans fue la más parecida que encontré. Van recortadas al alfabeto latino y sin ligaduras ni
+  kerning (~16 KB cada una), incrustadas en el PDF (`_shared/fuentes-sgc.ts`) y servidas en `public/fonts/` para
+  la pantalla y las imágenes del Excel, de modo que los tres miden el texto igual y cortan las líneas en el mismo
+  lugar.
+- **Íconos**: Lucide (licencia ISC), dibujados como vectores.
+- **Fechas y horas en hora de Chile** (`America/Santiago`) también en el PDF: las Edge Functions corren en UTC
+  y antes un comprobante emitido de noche salía con la fecha corrida. Lo mismo para la columna "Creada" del
+  maestro PDF.
+
+### El Excel
+
+- Arriba va **una imagen** con el encabezado, la sección 1 y la barra de la sección 2, dibujada con el mismo
+  motor que el PDF (por eso es idéntica). La **tabla son celdas reales**: se puede filtrar (autofiltro),
+  ordenar, copiar y volver a importar. La fila de títulos lleva el degradado azul e íconos blancos; las filas,
+  cebra, bordes finos y la "píldora" (celda celeste) en Estado/Decisión/Contrato indefinido.
+- La cabecera se escala al ancho de la tabla, como en el concepto. El maestro de solicitudes es mucho más
+  ancho (5 columnas por cada aprobador): ahí la cabecera queda a escala 1 y la tabla sigue hacia la derecha.
+- Al imprimir: A4, ajustado al ancho (el maestro de solicitudes, que es muy ancho, al 55 %), la fila de
+  títulos se repite en cada hoja y el pie de página de Excel pone `METALIUM | código | nombre` y
+  "Página X de N".
+- Las celdas usan **Segoe UI** (la fuente de Windows más cercana a Fira Sans): Montserrat/Fira no vienen
+  instaladas en los PC y un Excel no puede incrustar fuentes.
+- Las imágenes pasan por `corregirAnclajeImagenes()` (ver `xlsx-anclaje.js`), sin eso Excel las descarta.
+
+### Trabajadores: la plantilla y el maestro se siguen importando
+
+El importador ahora **busca la fila que tiene "RUT"** en vez de suponer que los títulos están en la fila 1
+(con el diseño nuevo están bajo el encabezado), y lee la hoja "Trabajadores" (o la primera). Las planillas
+antiguas, con los títulos en la fila 1, siguen funcionando igual. Probado: el maestro descargado, vuelto a
+subir, da "24 sin cambios"; la plantilla, "2 nuevos" (las filas de ejemplo).
+
+La plantilla trae 20 filas con formato, listas desplegables en "Tipo de Contrato" y "Contrato Indefinido", y
+la hoja "Instrucciones" con el mismo diseño (instrucciones como fichas + tabla de centros de costo válidos).
+No lleva el pie como imagen bajo la tabla, para que no tape las filas que se agreguen; el pie sale al imprimir.
+
+### Decisiones que quedan abiertas
+
+- **Códigos provisorios de Trabajadores**: `RRH-FOR-DOT-001` (maestro) y `RRH-FOR-DOT-002` (plantilla), en
+  `DOTACION_CODIGOS` de `src/config.js`. Confírmalos o cámbialos por los reales del SGC.
+- **Una sola píldora** (celeste, como en el concepto) para todos los estados: aprobada, pendiente y rechazada
+  se distinguen por el texto, ya no por color (verde/ámbar/rojo).
+- **El maestro PDF pasa a A4 vertical** (antes era apaisado), como el concepto. Muestra 9 columnas; el detalle
+  completo fila por fila sigue en el Excel.
+- El comprobante quedó en **2 páginas** cuando la tabla de aprobaciones no cabe completa en la primera (se pasa
+  entera, no se corta).
+- Quedan sin uso `src/ui/encabezado-svg.js` y `supabase/functions/_shared/pdf-encabezado.ts` (el encabezado
+  anterior "Sistema de Gestión Integrado"). No los borré; se pueden eliminar cuando quieras.
+
+### Verificación hecha antes de esta entrega
+
+- **PDF**: generé comprobantes reales (traslado con 3 aprobadores, ingreso, renovación sin aprobadores) y un
+  maestro de 37 solicitudes con el mismo código de las Edge Functions (Deno), y comparé el encabezado, las
+  fichas, la tabla y el pie contra el concepto, zona por zona.
+- **Pantalla y Excel**: Playwright sobre las vistas reales (Comprobante, Solicitudes, Trabajadores) con datos
+  de ejemplo: 3 comprobantes, las 3 descargas de Excel y la re-importación de la plantilla y del maestro, sin
+  errores de consola. Los Excel se revisaron con un lector estricto (openpyxl: todas las imágenes presentes) y
+  convertidos a PDF con LibreOffice. No tengo Excel acá: conviene abrirlos una vez en tu PC para confirmar que
+  la imagen de la cabecera calza con el ancho de la tabla.
+- `npm run build` compila sin errores.
+
+### Cómo desplegar esto
+
+1. **No hay migración** de base de datos.
+2. Vuelve a desplegar por CLI **`comprobante-pdf`**, **`maestro-pdf`** y **`Notificar`** (los tres usan
+   `_shared/`, que cambió). Mismo procedimiento de siempre, ver la sección 1.
+3. Haz commit y push del repo a `main`; Vercel publica solo. No hay dependencias ni variables `.env` nuevas
+   (las fuentes van en `public/fonts/`).

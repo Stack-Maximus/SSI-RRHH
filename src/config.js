@@ -21,15 +21,18 @@ export const ROLES = {
 
 // Tipos de solicitud que puede crear cada rol desde "Nueva solicitud"
 // (mismo formulario para todos; el segmento de tipos varía según el rol).
-// Unificado en 'solicitante' (ve los 7) a pedido explícito -- antes los 5
-// tipos "de cambio" eran exclusivos de 'supervisor', ver migración
+// Unificado en 'solicitante' a pedido explícito -- antes los tipos "de
+// cambio" eran exclusivos de 'supervisor', ver migración
 // 0019_solicitante_tipos_cambio.sql (esa es la puerta real; esto de acá
 // solo decide qué pestañas se muestran). 'supervisor' se deja igual que
 // antes -- no se le quitó nada -- por si ya hay cuentas con ese rol.
+// 'bono' se quitó de los 3 roles (oct. 2026, a pedido: "Bonos. Quitar todo
+// ese apartado"); la base también deja de aceptarlo (migración 0020). El
+// tipo sigue existiendo para mostrar las solicitudes de bono ya creadas.
 export const TIPOS_SOLICITUD_POR_ROL = {
-  solicitante: ['ingreso', 'traslado', 'aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'],
-  supervisor:  ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'],
-  admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion']
+  solicitante: ['ingreso', 'traslado', 'aumento_sueldo', 'cambio_cargo', 'renovacion', 'desvinculacion'],
+  supervisor:  ['aumento_sueldo', 'cambio_cargo', 'renovacion', 'desvinculacion'],
+  admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'cambio_cargo', 'renovacion', 'desvinculacion']
 };
 
 // Ícono + etiqueta de cada vista (para el sidebar)
@@ -96,19 +99,48 @@ export const TIPO_TRABAJADOR_LABELS = {
 // listas que se puedan desincronizar.
 export const TIPOS_CONTRATO = ['Plazo Fijo', 'Obra o Faena', 'Indefinido'];
 
+// Tipos de contrato que se pueden pedir en una solicitud de INGRESO. Sin
+// "Obra o Faena" (a pedido, oct. 2026). TIPOS_CONTRATO de arriba se deja
+// completo: lo usa el maestro de Trabajadores (hay trabajadores que ya
+// tienen ese contrato) y la Renovación sigue ofreciendo "por obra o faena".
+export const TIPOS_CONTRATO_INGRESO = ['Plazo Fijo', 'Indefinido'];
+
+// Tipos de renovación (formulario "Nueva solicitud" -> Renovación). Cada uno
+// pide un dato distinto: 'plazo' -> fecha de culminación (detalle.nueva_fecha_termino),
+// 'obra_faena' -> hito de la obra, texto libre (detalle.hito_obra),
+// 'indefinido' -> nada (detalle.indefinido = true). Al aprobarse, el trigger
+// de la migración 0020 deja trabajadores.tipo_contrato en el valor de la
+// derecha (TIPO_CONTRATO_POR_RENOVACION).
+export const TIPO_RENOVACION_LABELS = {
+  plazo:      'A plazo',
+  obra_faena: 'Por obra o faena',
+  indefinido: 'Pasa a indefinido'
+};
+export const TIPO_CONTRATO_POR_RENOVACION = {
+  plazo:      'Plazo Fijo',
+  obra_faena: 'Obra o Faena',
+  indefinido: 'Indefinido'
+};
+
 // Causales de desvinculación (formulario "Nueva solicitud" -> Desvinculación).
 // Categorías prácticas de uso frecuente, no la tipificación legal completa
 // del Código del Trabajo -- se deja "Otra causal" con detalle libre en el
-// campo Observaciones para cualquier caso que no encaje.
+// campo Observaciones para cualquier caso que no encaje. La causal
+// disciplinaria (Art. 160) se quitó a pedido (oct. 2026); las solicitudes
+// antiguas que la tengan la siguen mostrando tal cual.
 export const CAUSALES_DESVINCULACION = [
   'Renuncia voluntaria',
   'Mutuo acuerdo de las partes',
   'Vencimiento del plazo convenido',
   'Conclusión del trabajo o faena',
   'Necesidades de la empresa',
-  'Causal disciplinaria (Art. 160)',
   'Otra causal'
 ];
+
+// Aviso que se muestra en Traslado y Cambio de cargo. Coincide con la meta
+// de RRHH del dashboard "SLA Contratación" (SLA_DIAS = 3 en dashboard-rrhh.js):
+// desde que la solicitud queda aprobada hasta que RRHH cierra su parte.
+export const DIAS_HABILES_PROCESO_RRHH = 3;
 
 export const ESTADO_CONTRATACION_LABELS = {
   en_proceso: 'En proceso',
@@ -148,3 +180,11 @@ export const DOCUMENTO_CODIGOS = {
 
 // Maestro de solicitudes (exportable a Excel): código del formulario, sin folio propio.
 export const MAESTRO_SOLICITUDES_CODIGO = 'RRH-FOR-SOL-001';
+
+// Excel de la dotación (vista Trabajadores), con el diseño del SGC.
+// OJO: códigos PROVISORIOS (familia "DOT" = dotación, nueva) -- confírmalos o
+// reemplázalos por los códigos reales del Sistema de Gestión de Metalium.
+export const DOTACION_CODIGOS = {
+  maestro:   { codigo: 'RRH-FOR-DOT-001', titulo: 'Maestro de trabajadores' },
+  plantilla: { codigo: 'RRH-FOR-DOT-002', titulo: 'Plantilla de carga de trabajadores' }
+};

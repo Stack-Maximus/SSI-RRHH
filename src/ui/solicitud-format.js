@@ -1,9 +1,16 @@
 /**
  * Helpers de presentación compartidos por las vistas de solicitudes.
+ *
+ * Los formularios cambiaron en oct. 2026 (ver nueva-solicitud.js), pero acá
+ * se siguen mostrando también los campos antiguos (Horario, sueldos y bonos
+ * de traslado, sueldo actual/nuevo de aumento, etc.): las solicitudes ya
+ * creadas los tienen guardados y no se reescriben. Como detallePares() omite
+ * los valores vacíos, una solicitud nueva simplemente no muestra esas filas.
+ * Espejo en Deno: supabase/functions/_shared/solicitud-detalle.ts.
  */
 
 import { escapeHtml } from './utils.js';
-import { TIPO_SOLICITUD_META } from '../config.js';
+import { TIPO_SOLICITUD_META, TIPO_RENOVACION_LABELS } from '../config.js';
 
 export function estadoBadge(estado) {
   const map = {
@@ -56,12 +63,14 @@ export function resumen(sol, centrosMap, trabMap) {
     case 'traslado':
       return `${escapeHtml(trab())} · ${escapeHtml(cen(sol.centro_origen_id))} → ${escapeHtml(cen(sol.centro_destino_id))}`;
     case 'aumento_sueldo':
+      if (d.monto_aumento != null) return `${escapeHtml(trab())} · aumento de ${pesos(d.monto_aumento)}`;
       return `${escapeHtml(trab())} · ${d.sueldo_actual != null ? pesos(d.sueldo_actual) : '—'} → ${d.sueldo_nuevo != null ? pesos(d.sueldo_nuevo) : '—'}`;
     case 'bono':
       return `${escapeHtml(trab())} · ${escapeHtml(d.tipo_bono || 'Bono')}${d.monto != null ? ' · ' + pesos(d.monto) : ''}`;
     case 'cambio_cargo':
       return `${escapeHtml(trab())} · ${escapeHtml(d.cargo_actual || '—')} → ${escapeHtml(d.cargo_nuevo || '—')}`;
     case 'renovacion':
+      if (d.tipo_renovacion === 'obra_faena') return `${escapeHtml(trab())} · por obra o faena: ${escapeHtml(d.hito_obra || '—')}`;
       return `${escapeHtml(trab())} · ${d.indefinido ? 'pasa a indefinido' : 'hasta ' + escapeHtml(d.nueva_fecha_termino || d.nuevo_plazo || '—')}`;
     case 'desvinculacion':
       return `${escapeHtml(trab())} · ${escapeHtml(d.causal || 'Desvinculación')}${d.fecha_desvinculacion ? ' · ' + escapeHtml(d.fecha_desvinculacion) : ''}`;
@@ -83,6 +92,7 @@ export function detallePares(sol) {
         ['Tipo de contrato', d.tipo_contrato],
         ['Plazo', d.plazo],
         ['Turno', d.turno],
+        ['Horario de colación', d.colacion],
         ['Horario', d.horario],
         ['Fecha de ingreso', d.fecha_ingreso],
         ['Cliente', d.cliente]
@@ -97,12 +107,14 @@ export function detallePares(sol) {
         ['Horario', d.horario],
         ['Sueldo líquido actual', d.sueldo_liquido_actual != null ? pesos(d.sueldo_liquido_actual) : null],
         ['Nuevo sueldo líquido', d.nuevo_sueldo_liquido != null ? pesos(d.nuevo_sueldo_liquido) : null],
-        ['Bono nocturno', d.bono_nocturno?.aplica ? `Sí (${d.bono_nocturno.porcentaje ?? '—'} · ${d.bono_nocturno.periodo ?? '—'})` : 'No'],
-        ['Bono trato', d.bono_trato?.aplica ? `Sí (${d.bono_trato.monto != null ? pesos(d.bono_trato.monto) : '—'} · ${d.bono_trato.dias_asignacion ?? '—'} días)` : 'No']
+        // Bonos: solo traslados antiguos los tienen (el formulario ya no los pide).
+        ['Bono nocturno', !d.bono_nocturno ? null : d.bono_nocturno.aplica ? `Sí (${d.bono_nocturno.porcentaje ?? '—'} · ${d.bono_nocturno.periodo ?? '—'})` : 'No'],
+        ['Bono trato', !d.bono_trato ? null : d.bono_trato.aplica ? `Sí (${d.bono_trato.monto != null ? pesos(d.bono_trato.monto) : '—'} · ${d.bono_trato.dias_asignacion ?? '—'} días)` : 'No']
       ];
       break;
     case 'aumento_sueldo':
       pares = [
+        ['Monto del aumento', d.monto_aumento != null ? pesos(d.monto_aumento) : null],
         ['Sueldo líquido actual', d.sueldo_actual != null ? pesos(d.sueldo_actual) : null],
         ['Nuevo sueldo líquido', d.sueldo_nuevo != null ? pesos(d.sueldo_nuevo) : null],
         ['Fecha efectiva', d.fecha_efectiva],
@@ -126,13 +138,25 @@ export function detallePares(sol) {
       ];
       break;
     case 'renovacion':
-      pares = [
-        ['Fecha de término actual', d.fecha_termino_actual],
-        ['Nueva condición', d.indefinido ? 'Pasa a indefinido (sin fecha de término)' : null],
-        ['Nueva fecha de término', d.indefinido ? null : d.nueva_fecha_termino],
-        ['Nuevo plazo', d.indefinido ? null : d.nuevo_plazo],
-        ['Motivo', d.motivo]
-      ];
+      if (d.tipo_renovacion) {
+        pares = [
+          ['Tipo de contrato actual', d.tipo_contrato_actual],
+          ['Fecha de término actual', d.fecha_termino_actual],
+          ['Tipo de renovación', TIPO_RENOVACION_LABELS[d.tipo_renovacion] || d.tipo_renovacion],
+          ['Fecha de culminación', d.tipo_renovacion === 'plazo' ? d.nueva_fecha_termino : null],
+          ['Hito de la obra', d.tipo_renovacion === 'obra_faena' ? d.hito_obra : null],
+          ['Motivo', d.motivo]
+        ];
+      } else {
+        // Renovaciones creadas antes de oct. 2026 (sin tipo_renovacion).
+        pares = [
+          ['Fecha de término actual', d.fecha_termino_actual],
+          ['Nueva condición', d.indefinido ? 'Pasa a indefinido (sin fecha de término)' : null],
+          ['Nueva fecha de término', d.indefinido ? null : d.nueva_fecha_termino],
+          ['Nuevo plazo', d.indefinido ? null : d.nuevo_plazo],
+          ['Motivo', d.motivo]
+        ];
+      }
       break;
     case 'desvinculacion':
       pares = [

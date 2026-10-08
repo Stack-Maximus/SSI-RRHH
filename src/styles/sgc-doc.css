@@ -1,0 +1,15 @@
+/*
+ * Tipografías de los documentos con el diseño "Concept 3" (comprobante en
+ * pantalla e imágenes del encabezado en los Excel). Son las mismas que
+ * incrusta el PDF (supabase/functions/_shared/fuentes-sgc.ts): recortes al
+ * alfabeto latino, sin ligaduras ni kerning, para que la pantalla, el
+ * Excel y el PDF midan el texto igual y corten las líneas en el mismo
+ * lugar. Se nombran "SGC ..." para no chocar con otra Montserrat/Fira que
+ * se cargue en el futuro. Licencia SIL OFL 1.1 (ver public/fonts/OFL-*.txt).
+ */
+@font-face { font-family: 'SGC Montserrat'; font-weight: 900; font-style: normal; font-display: block; src: url('/fonts/Montserrat-Black.ttf') format('truetype'); }
+@font-face { font-family: 'SGC Montserrat'; font-weight: 700; font-style: normal; font-display: block; src: url('/fonts/Montserrat-Bold.ttf') format('truetype'); }
+@font-face { font-family: 'SGC Fira Sans'; font-weight: 400; font-style: normal; font-display: block; src: url('/fonts/FiraSans-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'SGC Fira Sans'; font-weight: 500; font-style: normal; font-display: block; src: url('/fonts/FiraSans-Medium.ttf') format('truetype'); }
+@font-face { font-family: 'SGC Fira Sans'; font-weight: 600; font-style: normal; font-display: block; src: url('/fonts/FiraSans-SemiBold.ttf') format('truetype'); }
+@font-face { font-family: 'SGC Fira Sans'; font-weight: 700; font-style: normal; font-display: block; src: url('/fonts/FiraSans-Bold.ttf') format('truetype'); }

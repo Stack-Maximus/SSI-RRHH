@@ -1,13 +1,21 @@
 /**
  * Vista "Nueva solicitud" · formularios de Ingreso, Traslado, y Aumento de
- * sueldo / Bono / Cambio de cargo / Renovación / Desvinculación (esta última
- * tanda, sobre un trabajador ya contratado). El rol `solicitante` ve los 7
- * (unificado -- antes los 5 "de cambio" eran solo de `supervisor`, ver
+ * sueldo / Cambio de cargo / Renovación / Desvinculación (esta última tanda,
+ * sobre un trabajador ya contratado). El rol `solicitante` ve los 6
+ * (unificado -- antes los "de cambio" eran solo de `supervisor`, ver
  * migración 0019); el segmento de tipos visibles según el rol sigue viviendo
  * en TIPOS_SOLICITUD_POR_ROL (config.js). Ingreso/Traslado llaman a
- * crear_solicitud(); los 5 tipos de cambio llaman a crear_solicitud_cambio()
+ * crear_solicitud(); los tipos de cambio llaman a crear_solicitud_cambio()
  * (aprueba solo el administrador de obra del centro del trabajador). Los
  * campos propios de cada tipo se guardan en `detalle` (JSONB).
+ *
+ * Ajustes de oct. 2026 (a pedido, ver NOTAS sección 16): Ingreso sin
+ * "Obra o Faena" ni Horario, con turno "Artículo 22" y Horario de colación;
+ * Traslado sin sueldos, sin Horario y sin Bonos; Aumento de sueldo pide solo
+ * el monto del aumento; el tipo Bono ya no se crea; Renovación toma el tipo
+ * de contrato del trabajador y pide el tipo de renovación; Desvinculación
+ * sin causal disciplinaria. Las solicitudes antiguas conservan sus campos
+ * tal cual (solicitud-format.js los sigue mostrando).
  *
  * MODO EDICIÓN: cuando Router.go('nueva-solicitud', {editId}) trae un id
  * (ver mis-solicitudes.js), esta misma vista carga esa solicitud y reusa
@@ -26,7 +34,10 @@ import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { TIPOS_SOLICITUD_POR_ROL, TIPO_SOLICITUD_META, TIPOS_CONTRATO, CAUSALES_DESVINCULACION } from '../config.js';
+import {
+  TIPOS_SOLICITUD_POR_ROL, TIPO_SOLICITUD_META, TIPOS_CONTRATO_INGRESO, CAUSALES_DESVINCULACION,
+  TIPO_RENOVACION_LABELS, DIAS_HABILES_PROCESO_RRHH
+} from '../config.js';
 
 let centros = [];
 let trabajadores = [];
@@ -37,19 +48,28 @@ let cargos = [];
 let editando = null;
 
 // 3 turnos fijos, cada uno con su horario de Lunes a Jueves y su horario
-// (distinto, jornada reducida) del Viernes -- se guarda el texto completo
-// tal cual en detalle.turno (mismo criterio que el resto del formulario:
-// sin tabla de códigos aparte, el texto ya es autoexplicativo en el
-// comprobante, el Excel maestro, etc.).
+// (distinto, jornada reducida) del Viernes, más "Artículo 22" (trabajador
+// excluido de la limitación de jornada, Art. 22 del Código del Trabajo: sin
+// horario fijo). Se guarda el texto completo tal cual en detalle.turno
+// (mismo criterio que el resto del formulario: sin tabla de códigos aparte,
+// el texto ya es autoexplicativo en el comprobante, el Excel maestro, etc.).
+// El turno ya define el horario, por eso Ingreso y Traslado no tienen un
+// campo "Horario" aparte (se quitó en oct. 2026).
 const TURNOS = [
   'Lunes a Jueves 08:00 a 17:30 · Viernes 08:00 a 17:00',
   'Lunes a Jueves 07:30 a 17:00 · Viernes 07:30 a 16:30',
-  'Lunes a Jueves 21:00 a 06:00 · Viernes 22:00 a 06:00 (Turno Noche)'
+  'Lunes a Jueves 21:00 a 06:00 · Viernes 22:00 a 06:00 (Turno Noche)',
+  'Artículo 22 (sin limitación de jornada)'
 ];
-const TIPOS_BONO = ['Bono Trato', 'Bono Nocturno', 'Bono Producción', 'Bono Responsabilidad', 'Otro'];
+const COLACIONES = ['30 minutos', '60 minutos'];
 
 // Tipos que se crean vía crear_solicitud_cambio() (sobre un trabajador ya contratado)
-const TIPOS_CAMBIO = ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'];
+const TIPOS_CAMBIO = ['aumento_sueldo', 'cambio_cargo', 'renovacion', 'desvinculacion'];
+
+const avisoPlazo = (queCosa) => `
+    <div class="form-section"><div class="form-info">
+      ⏱️ Desde que la solicitud queda aprobada, ${queCosa} tiene una demora de hasta <b>${DIAS_HABILES_PROCESO_RRHH} días hábiles</b> como máximo.
+    </div></div>`;
 
 const num = (v) => (v === '' || v == null ? null : Number(v));
 const txt = (v) => (v && String(v).trim() ? String(v).trim() : null);
@@ -62,10 +82,22 @@ function optsCentros(sel) {
     `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${c.codigo} · ${c.nombre}</option>`
   ).join('');
 }
-function optsContrato(sel = '') { return TIPOS_CONTRATO.map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join(''); }
-function optsTurno(sel = '')    { return TURNOS.map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join(''); }
-function optsBono(sel = '')     { return TIPOS_BONO.map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join(''); }
-function optsCausales(sel = '') { return CAUSALES_DESVINCULACION.map(t => `<option ${t === sel ? 'selected' : ''}>${t}</option>`).join(''); }
+/**
+ * <option>s de una lista fija. Si `sel` trae un valor que ya no está en la
+ * lista (una solicitud antigua que se está editando: "Obra o Faena" en un
+ * Ingreso, la causal disciplinaria, un turno viejo...), se agrega igual
+ * como opción elegida -- editar no debe cambiar en silencio un dato ya
+ * guardado. Con `placeholder`, la primera opción queda vacía (obliga a elegir).
+ */
+function optsLista(lista, sel = '', placeholder = null) {
+  const items = sel && !lista.includes(sel) ? [...lista, sel] : lista;
+  return (placeholder !== null ? `<option value="">${placeholder}</option>` : '') +
+    items.map(t => `<option ${t === sel ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('');
+}
+function optsContrato(sel = '') { return optsLista(TIPOS_CONTRATO_INGRESO, sel); }
+function optsTurno(sel = '')    { return optsLista(TURNOS, sel); }
+function optsColacion(sel = '') { return optsLista(COLACIONES, sel, '— Seleccionar —'); }
+function optsCausales(sel = '') { return optsLista(CAUSALES_DESVINCULACION, sel); }
 function optsCargos(sel) {
   return '<option value="">— Seleccionar cargo —</option>' +
     cargos.map(c => `<option ${c === sel ? 'selected' : ''}>${c}</option>`).join('');
@@ -117,6 +149,9 @@ export async function renderNuevaSolicitud(container, params) {
     try {
       solEditar = await Data.solicitudPorId(params.editId);
       if (solEditar.solicitante_id !== state.user.id) throw new Error('Esta solicitud no te pertenece.');
+      // Un tipo que ya no tiene formulario (Bono, quitado en oct. 2026) no se
+      // puede editar -- sigue su curso de aprobación normal tal como se creó.
+      if (!FORMULARIOS[solEditar.tipo]) throw new Error(`Las solicitudes de ${TIPO_SOLICITUD_META[solEditar.tipo]?.label || solEditar.tipo} ya no se editan desde el sistema.`);
       if (solEditar.estado !== 'pendiente') throw new Error('Esta solicitud ya no se puede editar (no está pendiente).');
       const aprs = await Data.aprobacionesDe([solEditar.id]);
       if (aprs.some(a => a.decision !== 'pendiente')) {
@@ -201,37 +236,36 @@ export async function renderNuevaSolicitud(container, params) {
   container.querySelector('#sol-form').addEventListener('submit', (e) => onSubmit(e, () => tipo));
 }
 
+// Formulario de cada tipo: `body` arma el HTML, `build` valida y arma el
+// payload. Un tipo que no está acá (Bono) ya no se puede crear ni editar.
+// (Las funciones de abajo son declaraciones, así que ya existen al evaluar esto.)
+const FORMULARIOS = {
+  ingreso:        { body: bodyIngreso,        build: buildIngreso },
+  traslado:       { body: bodyTraslado,       build: buildTraslado },
+  aumento_sueldo: { body: bodyAumentoSueldo,  build: buildAumentoSueldo },
+  cambio_cargo:   { body: bodyCambioCargo,    build: buildCambioCargo },
+  renovacion:     { body: bodyRenovacion,     build: buildRenovacion },
+  desvinculacion: { body: bodyDesvinculacion, build: buildDesvinculacion }
+};
+
 function renderBody(tipo, sol) {
   const body = document.getElementById('form-body');
-  const builders = {
-    ingreso: bodyIngreso,
-    traslado: bodyTraslado,
-    aumento_sueldo: bodyAumentoSueldo,
-    bono: bodyBono,
-    cambio_cargo: bodyCambioCargo,
-    renovacion: bodyRenovacion,
-    desvinculacion: bodyDesvinculacion
-  };
   // Cada tipo arranca con el botón habilitado -- traslado es el único que
   // puede volver a deshabilitarlo (ver wireTraslado) si el trabajador
   // elegido requiere un anexo de renovación al día.
   const submitBtn = document.getElementById('sol-submit');
   if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = editando ? 'Guardar cambios' : 'Crear solicitud'; }
 
-  body.innerHTML = (builders[tipo] || bodyIngreso)(sol);
+  body.innerHTML = (FORMULARIOS[tipo] || FORMULARIOS.ingreso).body(sol);
 
   if (!editando) {
     if (tipo === 'traslado') wireTraslado();
-    if (tipo === 'aumento_sueldo') wireAumentoSueldo();
     if (tipo === 'cambio_cargo') wireCambioCargo();
     if (tipo === 'renovacion') wireRenovacion();
-  } else {
-    // Estos dos widgets (toggle "indefinido" y los checkboxes de bono) siguen
-    // siendo interactivos en modo edición -- lo único fijo es el trabajador y
-    // el/los centro(s), no estos campos.
-    if (tipo === 'traslado') wireBonoToggles();
-    if (tipo === 'renovacion') wireRenovacionIndefinido();
   }
+  // El selector "Tipo de renovación" sigue siendo interactivo en modo
+  // edición -- lo único fijo es el trabajador y el/los centro(s).
+  if (tipo === 'renovacion') wireTipoRenovacion();
 }
 
 /* ---------------- INGRESO ---------------- */
@@ -263,12 +297,12 @@ function bodyIngreso(sol) {
     <div class="form-section"><div class="form-grid-2">
       <div class="form-field"><label class="form-label">Turno</label>
         <select name="turno">${optsTurno(v.turno)}</select></div>
-      <div class="form-field"><label class="form-label">Sueldo líquido pactado</label>
-        <input type="number" name="sueldo_liquido" min="0" placeholder="Ej: 800000" value="${v.sueldo_liquido ?? ''}"></div>
+      <div class="form-field"><label class="form-label">Horario de colación <span class="req">*</span></label>
+        <select name="colacion" required>${optsColacion(v.colacion || '')}</select></div>
     </div></div>
     <div class="form-section"><div class="form-grid-2">
-      <div class="form-field"><label class="form-label">Horario</label>
-        <input type="text" name="horario" placeholder="Ej: Lunes a Sábado 08:00 a 18:00" value="${escapeHtml(v.horario || '')}"></div>
+      <div class="form-field"><label class="form-label">Sueldo líquido pactado</label>
+        <input type="number" name="sueldo_liquido" min="0" placeholder="Ej: 800000" value="${v.sueldo_liquido ?? ''}"></div>
       <div class="form-field"><label class="form-label">Fecha de ingreso a obra</label>
         <input type="date" name="fecha_ingreso" value="${v.fecha_ingreso || ''}"></div>
     </div></div>
@@ -278,13 +312,13 @@ function bodyIngreso(sol) {
 }
 
 /* ---------------- TRASLADO ---------------- */
+// Sin sueldos, sin Horario (lo define el turno) y sin Bonos (oct. 2026).
 function bodyTraslado(sol) {
   const v = sol?.detalle || {};
-  const bn = v.bono_nocturno || {};
-  const bt = v.bono_trato || {};
   const nombreOrigen = editando ? (centros.find(c => c.id === sol.centro_origen_id)?.nombre || '(centro no disponible)') : null;
   const nombreDestino = editando ? (centros.find(c => c.id === sol.centro_destino_id)?.nombre || '(centro no disponible)') : null;
   return `
+    ${avisoPlazo('el traslado')}
     ${selectTrabajador('trab-select', sol?.trabajador_id || '', editando ? sol._trabajadorNombre : null)}
     <div id="trab-alerta-contrato" class="form-error" hidden></div>
     <div class="form-section"><div class="form-grid-2">
@@ -303,55 +337,15 @@ function bodyTraslado(sol) {
           ? `<input type="text" value="${escapeHtml(nombreDestino)}" disabled><input type="hidden" name="centro_destino" value="${sol.centro_destino_id}">`
           : `<select name="centro_destino" required><option value="">— Seleccionar destino —</option>${optsCentros('')}</select>`}</div>
     </div></div>
-    <div class="form-section"><div class="form-grid-2">
-      <div class="form-field"><label class="form-label">Sueldo líquido actual (pactado)</label>
-        <input type="number" name="sueldo_liquido_actual" id="trab-sueldo" min="0" value="${v.sueldo_liquido_actual ?? ''}"></div>
-      <div class="form-field"><label class="form-label">Nuevo sueldo líquido</label>
-        <input type="number" name="nuevo_sueldo_liquido" min="0" value="${v.nuevo_sueldo_liquido ?? ''}"></div>
-    </div></div>
-    <div class="form-section"><div class="form-grid-2">
-      <div class="form-field"><label class="form-label">Turno</label>
-        <select name="turno">${optsTurno(v.turno)}</select></div>
-      <div class="form-field"><label class="form-label">Horario</label>
-        <input type="text" name="horario" placeholder="Ej: Lunes a Sábado..." value="${escapeHtml(v.horario || '')}"></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Turno</label>
+      <select name="turno">${optsTurno(v.turno)}</select>
     </div></div>
     <div class="form-section"><div class="form-field">
       <label class="form-label">Modificaciones contractuales</label>
       <textarea name="modificaciones" placeholder="Detalle de cambios en el contrato (opcional)">${escapeHtml(v.modificaciones_contractuales || '')}</textarea>
     </div></div>
-
-    <div class="form-section">
-      <label class="form-label">Bonos (marcar solo los que aplican)</label>
-      <label class="bono-toggle"><input type="checkbox" id="chk-nocturno" ${bn.aplica ? 'checked' : ''}> Aplica Bono Nocturno</label>
-      <div class="bono-fields" id="fields-nocturno" ${bn.aplica ? '' : 'hidden'}>
-        <div class="form-grid-2">
-          <div class="form-field"><label class="form-label">Porcentaje B. Nocturno</label>
-            <input type="number" name="bn_porcentaje" step="0.01" min="0" placeholder="Ej: 0.30" value="${bn.porcentaje ?? ''}"></div>
-          <div class="form-field"><label class="form-label">Período de asignación</label>
-            <input type="text" name="bn_periodo" placeholder="Ej: mensual / 3 meses" value="${escapeHtml(bn.periodo || '')}"></div>
-        </div>
-      </div>
-      <label class="bono-toggle"><input type="checkbox" id="chk-trato" ${bt.aplica ? 'checked' : ''}> Aplica Bono Trato</label>
-      <div class="bono-fields" id="fields-trato" ${bt.aplica ? '' : 'hidden'}>
-        <div class="form-grid-2">
-          <div class="form-field"><label class="form-label">Monto Bono Trato</label>
-            <input type="number" name="bt_monto" min="0" value="${bt.monto ?? ''}"></div>
-          <div class="form-field"><label class="form-label">Días de asignación</label>
-            <input type="number" name="bt_dias" min="0" value="${bt.dias_asignacion ?? ''}"></div>
-        </div>
-      </div>
-    </div>
   `;
-}
-
-function wireBonoToggles() {
-  const toggle = (chkId, fieldsId) => {
-    const chk = document.getElementById(chkId);
-    if (!chk) return;
-    chk.addEventListener('change', () => { document.getElementById(fieldsId).hidden = !chk.checked; });
-  };
-  toggle('chk-nocturno', 'fields-nocturno');
-  toggle('chk-trato', 'fields-trato');
 }
 
 function wireTraslado() {
@@ -367,7 +361,6 @@ function wireTraslado() {
       selCargo.insertAdjacentHTML('beforeend', `<option>${cargoTrab}</option>`);
     }
     selCargo.value = cargoTrab;
-    document.getElementById("trab-sueldo").value = t.sueldo_liquido ?? '';
     if (t.centro_costo_id) document.getElementById('trab-origen').value = t.centro_costo_id;
 
     // Contrato "Obra o Faena" sin anexo de renovación al día: bloquea el
@@ -384,49 +377,23 @@ function wireTraslado() {
       submitBtn.disabled = false;
     }
   });
-  wireBonoToggles();
 }
 
 /* ---------------- AUMENTO DE SUELDO ---------------- */
+// Solo el monto del aumento (oct. 2026): ya no se muestra ni se pide el
+// sueldo actual, el nuevo sueldo ni la fecha efectiva. Al editar una
+// solicitud antigua (sueldo_actual -> sueldo_nuevo) se precarga la diferencia.
 function bodyAumentoSueldo(sol) {
   const v = sol?.detalle || {};
+  const montoPrevio = v.monto_aumento ??
+    (v.sueldo_nuevo != null && v.sueldo_actual != null ? v.sueldo_nuevo - v.sueldo_actual : '');
   return `
     ${selectTrabajador('cam-trab', sol?.trabajador_id || '', editando ? sol._trabajadorNombre : null)}
-    <div class="form-section"><div class="form-grid-2">
-      <div class="form-field"><label class="form-label">Sueldo líquido actual</label>
-        <input type="number" id="cam-sueldo-actual" disabled placeholder="Se completa al elegir el trabajador" value="${v.sueldo_actual ?? ''}"></div>
-      <div class="form-field"><label class="form-label">Nuevo sueldo líquido <span class="req">*</span></label>
-        <input type="number" name="sueldo_nuevo" required min="0" value="${v.sueldo_nuevo ?? ''}"></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Monto del aumento de sueldo ($) <span class="req">*</span></label>
+      <input type="number" name="monto_aumento" required min="1" step="1" placeholder="Ej: 50000" value="${montoPrevio}">
+      <p class="hint">¿En cuánto se quiere aumentar el sueldo? Escribe solo el monto del aumento, no el sueldo final.</p>
     </div></div>
-    <div class="form-section"><div class="form-field">
-      <label class="form-label">Fecha efectiva</label>
-      <input type="date" name="fecha_efectiva" value="${v.fecha_efectiva || ''}"></div></div>
-    <div class="form-section"><div class="form-field">
-      <label class="form-label">Motivo</label>
-      <textarea name="motivo" placeholder="Opcional">${escapeHtml(v.motivo || '')}</textarea></div></div>
-  `;
-}
-function wireAumentoSueldo() {
-  document.getElementById('cam-trab').addEventListener('change', (e) => {
-    const t = trabajadores.find(x => x.id === e.target.value);
-    document.getElementById('cam-sueldo-actual').value = t?.sueldo_liquido ?? '';
-  });
-}
-
-/* ---------------- BONO ---------------- */
-function bodyBono(sol) {
-  const v = sol?.detalle || {};
-  return `
-    ${selectTrabajador('bono-trab', sol?.trabajador_id || '', editando ? sol._trabajadorNombre : null)}
-    <div class="form-section"><div class="form-grid-2">
-      <div class="form-field"><label class="form-label">Tipo de bono <span class="req">*</span></label>
-        <select name="tipo_bono" required>${optsBono(v.tipo_bono || '')}</select></div>
-      <div class="form-field"><label class="form-label">Monto <span class="req">*</span></label>
-        <input type="number" name="monto" required min="0" value="${v.monto ?? ''}"></div>
-    </div></div>
-    <div class="form-section"><div class="form-field">
-      <label class="form-label">Período / fecha</label>
-      <input type="text" name="periodo" placeholder="Ej: octubre 2026 / pago único" value="${escapeHtml(v.periodo || '')}"></div></div>
     <div class="form-section"><div class="form-field">
       <label class="form-label">Motivo</label>
       <textarea name="motivo" placeholder="Opcional">${escapeHtml(v.motivo || '')}</textarea></div></div>
@@ -437,6 +404,7 @@ function bodyBono(sol) {
 function bodyCambioCargo(sol) {
   const v = sol?.detalle || {};
   return `
+    ${avisoPlazo('el cambio de cargo')}
     ${selectTrabajador('cc-trab', sol?.trabajador_id || '', editando ? sol._trabajadorNombre : null)}
     <div class="form-section"><div class="form-grid-2">
       <div class="form-field"><label class="form-label">Cargo actual</label>
@@ -460,47 +428,83 @@ function wireCambioCargo() {
 }
 
 /* ---------------- RENOVACIÓN ---------------- */
+// Tipo de renovación que corresponde por defecto al contrato actual del
+// trabajador (se puede cambiar: p. ej. un plazo fijo que se renueva por obra).
+const RENOVACION_POR_CONTRATO = { 'Plazo Fijo': 'plazo', 'Obra o Faena': 'obra_faena' };
+const SIN_CONTRATO_REGISTRADO = 'No registrado en el maestro';
+
+/** Tipo de renovación de una solicitud ya guardada (las antiguas no traen tipo_renovacion). */
+function tipoRenovacionDe(v) {
+  if (v.tipo_renovacion) return v.tipo_renovacion;
+  if (v.indefinido) return 'indefinido';
+  if (v.nueva_fecha_termino || v.nuevo_plazo) return 'plazo';
+  return '';
+}
+
 function bodyRenovacion(sol) {
   const v = sol?.detalle || {};
+  const tipoRen = tipoRenovacionDe(v);
+  const optsTipoRen = '<option value="">— Seleccionar tipo de renovación —</option>' +
+    Object.entries(TIPO_RENOVACION_LABELS)
+      .map(([k, l]) => `<option value="${k}" ${k === tipoRen ? 'selected' : ''}>${l}</option>`).join('');
   return `
     ${selectTrabajador('ren-trab', sol?.trabajador_id || '', editando ? sol._trabajadorNombre : null)}
     <div class="form-section"><div class="form-grid-2">
       <div class="form-field"><label class="form-label">Tipo de contrato actual</label>
-        <select id="ren-contrato-actual" disabled>${optsContrato()}</select></div>
+        <input type="text" name="tipo_contrato_actual" id="ren-contrato-actual" readonly
+          placeholder="Se completa al elegir el trabajador" value="${escapeHtml(v.tipo_contrato_actual || '')}"></div>
       <div class="form-field"><label class="form-label">Fecha de término actual</label>
-        <input type="date" name="fecha_termino_actual" value="${v.fecha_termino_actual || ''}"></div>
+        <input type="date" name="fecha_termino_actual" id="ren-fecha-actual" value="${v.fecha_termino_actual || ''}"></div>
     </div></div>
-    <div class="form-section">
-      <label class="bono-toggle"><input type="checkbox" id="ren-indefinido" ${v.indefinido ? 'checked' : ''}> El contrato pasa a <strong>indefinido</strong> (sin fecha de término, se puede seguir renovando sin límite)</label>
+    <div id="ren-aviso-indefinido" class="form-info" hidden></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">Tipo de renovación <span class="req">*</span></label>
+      <select name="tipo_renovacion" id="ren-tipo" required>${optsTipoRen}</select>
+    </div></div>
+    <div class="form-section" id="ren-sec-plazo" ${tipoRen === 'plazo' ? '' : 'hidden'}><div class="form-field">
+      <label class="form-label">Fecha de culminación <span class="req">*</span></label>
+      <input type="date" name="nueva_fecha_termino" value="${v.nueva_fecha_termino || ''}">
+    </div></div>
+    <div class="form-section" id="ren-sec-obra" ${tipoRen === 'obra_faena' ? '' : 'hidden'}><div class="form-field">
+      <label class="form-label">Hito de la obra <span class="req">*</span></label>
+      <input type="text" name="hito_obra" maxlength="300" placeholder="Ej: Término de obra gruesa Torre B" value="${escapeHtml(v.hito_obra || '')}">
+      <p class="hint">El hito con el que termina el contrato (escríbelo como lo indica el anexo).</p>
+    </div></div>
+    <div class="form-section" id="ren-sec-indefinido" ${tipoRen === 'indefinido' ? '' : 'hidden'}>
+      <p class="hint">El contrato queda sin fecha de término.</p>
     </div>
-    <div class="form-section" id="ren-fechas-section" ${v.indefinido ? 'hidden' : ''}><div class="form-grid-2">
-      <div class="form-field"><label class="form-label">Nueva fecha de término</label>
-        <input type="date" name="nueva_fecha_termino" value="${v.nueva_fecha_termino || ''}"></div>
-      <div class="form-field"><label class="form-label">Nuevo plazo (si no hay fecha exacta)</label>
-        <input type="text" name="nuevo_plazo" placeholder="Ej: 3 meses más" value="${escapeHtml(v.nuevo_plazo || '')}"></div>
-    </div></div>
     <div class="form-section"><div class="form-field">
       <label class="form-label">Motivo</label>
       <textarea name="motivo" placeholder="Opcional">${escapeHtml(v.motivo || '')}</textarea></div></div>
   `;
 }
-function wireRenovacionIndefinido() {
-  const chk = document.getElementById('ren-indefinido');
-  const seccionFechas = document.getElementById('ren-fechas-section');
-  const form = document.getElementById('sol-form');
-  chk.addEventListener('change', () => {
-    seccionFechas.hidden = chk.checked;
-    if (chk.checked) {
-      form.nueva_fecha_termino.value = '';
-      form.nuevo_plazo.value = '';
-    }
-  });
+/** Muestra solo el campo que pide el tipo de renovación elegido (create y edición). */
+function wireTipoRenovacion() {
+  const sel = document.getElementById('ren-tipo');
+  const secciones = { plazo: 'ren-sec-plazo', obra_faena: 'ren-sec-obra', indefinido: 'ren-sec-indefinido' };
+  const aplicar = () => {
+    Object.entries(secciones).forEach(([k, id]) => { document.getElementById(id).hidden = sel.value !== k; });
+  };
+  sel.addEventListener('change', aplicar);
+  aplicar();
 }
+/** Al elegir el trabajador: tipo de contrato y fecha de término actuales, tomados del maestro. */
 function wireRenovacion() {
-  document.getElementById('ren-trab').addEventListener('change', () => {
-    // El maestro de trabajadores hoy no guarda tipo de contrato; queda como referencia editable.
+  document.getElementById('ren-trab').addEventListener('change', (e) => {
+    const t = trabajadores.find(x => x.id === e.target.value);
+    const contrato = t?.contrato_indefinido ? 'Indefinido' : (t?.tipo_contrato || '');
+    document.getElementById('ren-contrato-actual').value = t ? (contrato || SIN_CONTRATO_REGISTRADO) : '';
+    document.getElementById('ren-fecha-actual').value = t && !t.contrato_indefinido ? (t.fecha_termino_contrato || '') : '';
+
+    const aviso = document.getElementById('ren-aviso-indefinido');
+    aviso.hidden = contrato !== 'Indefinido';
+    aviso.textContent = contrato === 'Indefinido'
+      ? `ℹ️ Según el maestro de Trabajadores, ${t.nombre} ya tiene contrato indefinido.` : '';
+
+    const sel = document.getElementById('ren-tipo');
+    sel.value = RENOVACION_POR_CONTRATO[contrato] || '';
+    sel.dispatchEvent(new Event('change'));
   });
-  wireRenovacionIndefinido();
 }
 
 /* ---------------- DESVINCULACIÓN ---------------- */
@@ -529,19 +533,10 @@ async function onSubmit(e, getTipo) {
   const btn = document.getElementById('sol-submit');
   errorEl.hidden = true;
 
-  const BUILDERS = {
-    ingreso: buildIngreso,
-    traslado: buildTraslado,
-    aumento_sueldo: buildAumentoSueldo,
-    bono: buildBono,
-    cambio_cargo: buildCambioCargo,
-    renovacion: buildRenovacion,
-    desvinculacion: buildDesvinculacion
-  };
-
   let payload;
   try {
-    payload = BUILDERS[tipo](f);
+    if (!FORMULARIOS[tipo]) throw 'Este tipo de solicitud ya no está disponible.';
+    payload = FORMULARIOS[tipo].build(f);
   } catch (msg) {
     errorEl.textContent = msg; errorEl.hidden = false; return;
   }
@@ -581,6 +576,7 @@ function buildIngreso(f) {
   if (!txt(f.cargo.value)) throw 'Indica el cargo.';
   if (!num(f.cantidad.value)) throw 'Indica la cantidad.';
   if (!f.centro_costo.value) throw 'Selecciona el centro de costo.';
+  if (!f.colacion.value) throw 'Selecciona el horario de colación.';
   return {
     tipo: 'ingreso',
     trabajador_id: null,
@@ -594,7 +590,7 @@ function buildIngreso(f) {
       tipo_contrato: f.tipo_contrato.value,
       plazo: txt(f.plazo.value),
       turno: f.turno.value,
-      horario: txt(f.horario.value),
+      colacion: f.colacion.value,
       fecha_ingreso: f.fecha_ingreso.value || null,
       cliente: txt(f.cliente.value)
     }
@@ -611,16 +607,7 @@ function buildTraslado(f) {
     cargo: txt(f.cargo.value),
     fecha_traslado: f.fecha_traslado.value || null,
     modificaciones_contractuales: txt(f.modificaciones.value),
-    turno: f.turno.value,
-    horario: txt(f.horario.value),
-    sueldo_liquido_actual: num(f.sueldo_liquido_actual.value),
-    nuevo_sueldo_liquido: num(f.nuevo_sueldo_liquido.value),
-    bono_nocturno: document.getElementById('chk-nocturno').checked
-      ? { aplica: true, porcentaje: num(f.bn_porcentaje.value), periodo: txt(f.bn_periodo.value) }
-      : { aplica: false },
-    bono_trato: document.getElementById('chk-trato').checked
-      ? { aplica: true, monto: num(f.bt_monto.value), dias_asignacion: num(f.bt_dias.value) }
-      : { aplica: false }
+    turno: f.turno.value
   };
 
   return {
@@ -635,30 +622,13 @@ function buildTraslado(f) {
 
 function buildAumentoSueldo(f) {
   if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
-  if (!num(f.sueldo_nuevo.value)) throw 'Indica el nuevo sueldo líquido.';
-  const t = trabajadores.find(x => x.id === f.trabajador_id.value);
+  const monto = num(f.monto_aumento.value);
+  if (!monto || monto <= 0) throw 'Indica el monto del aumento (mayor a cero).';
   return {
     tipo: 'aumento_sueldo',
     trabajador_id: f.trabajador_id.value,
     detalle: {
-      sueldo_actual: t?.sueldo_liquido ?? null,
-      sueldo_nuevo: num(f.sueldo_nuevo.value),
-      fecha_efectiva: f.fecha_efectiva.value || null,
-      motivo: txt(f.motivo.value)
-    }
-  };
-}
-
-function buildBono(f) {
-  if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
-  if (!num(f.monto.value)) throw 'Indica el monto del bono.';
-  return {
-    tipo: 'bono',
-    trabajador_id: f.trabajador_id.value,
-    detalle: {
-      tipo_bono: f.tipo_bono.value,
-      monto: num(f.monto.value),
-      periodo: txt(f.periodo.value),
+      monto_aumento: monto,
       motivo: txt(f.motivo.value)
     }
   };
@@ -680,20 +650,32 @@ function buildCambioCargo(f) {
   };
 }
 
+// `nueva_fecha_termino` e `indefinido` mantienen el nombre de antes a
+// propósito: son los que lee el trigger de la base al aprobarse (0008, y su
+// reemplazo en 0020), así una renovación "a plazo" o "indefinida" actualiza
+// el maestro de Trabajadores igual que siempre.
 function buildRenovacion(f) {
   if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
-  const indefinido = document.getElementById('ren-indefinido').checked;
-  if (!indefinido && !f.nueva_fecha_termino.value && !txt(f.nuevo_plazo.value)) {
-    throw 'Indica la nueva fecha de término, el nuevo plazo, o marca que pasa a indefinido.';
+  const tipoRen = f.tipo_renovacion.value;
+  if (!TIPO_RENOVACION_LABELS[tipoRen]) throw 'Selecciona el tipo de renovación.';
+  const fechaActual = f.fecha_termino_actual.value || null;
+  const fechaNueva = f.nueva_fecha_termino.value || null;
+  const hito = txt(f.hito_obra.value);
+  if (tipoRen === 'plazo') {
+    if (!fechaNueva) throw 'Indica la fecha de culminación del contrato.';
+    if (fechaActual && fechaNueva <= fechaActual) throw 'La fecha de culminación debe ser posterior a la fecha de término actual.';
   }
+  if (tipoRen === 'obra_faena' && !hito) throw 'Indica el hito de la obra con el que termina el contrato.';
   return {
     tipo: 'renovacion',
     trabajador_id: f.trabajador_id.value,
     detalle: {
-      fecha_termino_actual: f.fecha_termino_actual.value || null,
-      indefinido,
-      nueva_fecha_termino: indefinido ? null : (f.nueva_fecha_termino.value || null),
-      nuevo_plazo: indefinido ? null : txt(f.nuevo_plazo.value),
+      tipo_contrato_actual: f.tipo_contrato_actual.value === SIN_CONTRATO_REGISTRADO ? null : txt(f.tipo_contrato_actual.value),
+      fecha_termino_actual: fechaActual,
+      tipo_renovacion: tipoRen,
+      nueva_fecha_termino: tipoRen === 'plazo' ? fechaNueva : null,
+      hito_obra: tipoRen === 'obra_faena' ? hito : null,
+      indefinido: tipoRen === 'indefinido',
       motivo: txt(f.motivo.value)
     }
   };

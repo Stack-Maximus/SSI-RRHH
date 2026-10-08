@@ -4,7 +4,6 @@
  * Reutilizable para "Historial" (solo finalizadas) vía el parámetro fijo.
  */
 
-import ExcelJS from 'exceljs';
 import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
@@ -13,11 +12,9 @@ import { TIPO_SOLICITUD_META, MAESTRO_SOLICITUDES_CODIGO, DOCUMENTO_CODIGOS, TIP
 import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
 import { state } from '../core/state.js';
 import { renderComprobante } from './comprobante.js';
-import { encabezadoSvg, ajustarTextosEncabezado } from '../ui/encabezado-svg.js';
-// Necesario para que .eh-svg text tenga font-family (Poppins/Arial) -- ver
-// headerPngDataUri() más abajo, que además tiene que fijarlo inline porque
-// esta hoja de estilos no viaja cuando se serializa solo el <svg>.
-import '../styles/comprobante.css';
+import { nuevoLibroSgc, hojaSgc, descargarLibroSgc } from '../ui/xlsx-sgc.js';
+import { documentoMaestro, fechaHora, duracion } from '../../supabase/functions/_shared/sgc-documentos.js';
+import { TIPO_LABELS } from '../../supabase/functions/_shared/solicitud-detalle.ts';
 
 let _sols = [], _centros, _trab, _perfiles, _checklist = [], _docsTraslado = new Map(), _rechazosTraslado = new Map(), _backView, _container;
 
@@ -239,145 +236,11 @@ function reRenderCard(s) {
   wireAcciones(fresh);
 }
 
-// Colores de marca (mismos que el encabezado del PDF y los correos), para que
-// el maestro en Excel se vea como parte del mismo sistema y no como una
-// planilla suelta. Formato ARGB (8 hex: alfa + RGB) que pide ExcelJS.
-const XL_AZUL = 'FF1B9BD8';
-const XL_GRIS_ETIQUETA = 'FF8791AA';
-const XL_GRIS_TEXTO = 'FF3D4258';
-const XL_ZEBRA = 'FFF6F9FC';
-const XL_VERDE_BG = 'FFE5F6EA', XL_VERDE_FG = 'FF1A7F37';
-const XL_ROJO_BG = 'FFFBE9E9', XL_ROJO_FG = 'FFB91C1C';
-const XL_AMBAR_BG = 'FFFFF4E0', XL_AMBAR_FG = 'FF92610C';
-
-function estadoColorXl(estado) {
-  if (estado === 'aprobada') return { bg: XL_VERDE_BG, fg: XL_VERDE_FG };
-  if (estado === 'rechazada') return { bg: XL_ROJO_BG, fg: XL_ROJO_FG };
-  return { bg: XL_AMBAR_BG, fg: XL_AMBAR_FG }; // pendiente u otro estado futuro
-}
-
-/** Logo Metalium como data URI (mismo archivo .png que usa la vista en
- * pantalla), para incrustarlo en el encabezado del Excel. Si por algún
- * motivo no carga, el maestro se genera igual -- el logo nunca bloquea la
- * exportación. */
-async function logoDataUriMaestro() {
-  try {
-    const res = await fetch('/Metalium_Logo_Header.png');
-    const blob = await res.blob();
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch (e) {
-    console.warn('[solicitudes] no se pudo cargar el logo para el Excel del maestro', e);
-    return null;
-  }
-}
-
-function cargarImagen(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('no se pudo cargar la imagen'));
-    img.src = src;
-  });
-}
-
-// Mismo viewBox que src/ui/encabezado-svg.js (fuente de verdad geométrica).
-const EH_ANCHO = 1400, EH_ALTO = 173;
-// Geometría del logo, IDÉNTICA a la de encabezadoSvg() -- duplicada acá
-// porque el <image> del logo, anidado dentro de ese SVG, no se rasteriza de
-// forma confiable al convertir el encabezado a PNG (ver punto 2 más abajo),
-// así que se dibuja aparte con estas mismas coordenadas.
-const EH_LOGO_X = 48, EH_LOGO_W = 225, EH_LOGO_ASPECTO = 110 / 527;
-const EH_LOGO_H = EH_LOGO_W * EH_LOGO_ASPECTO;
-const EH_LOGO_Y = EH_ALTO / 2 - EH_LOGO_H / 2;
-// Ancho de la imagen del encabezado ya incrustada en el Excel (px) -- el
-// alto sale del mismo aspecto que encabezadoSvg() (1400 x 173).
-const HEADER_IMG_W = 950;
-const HEADER_IMG_H = Math.round(HEADER_IMG_W * (EH_ALTO / EH_ANCHO));
-// Alto de fila necesario para no recortar la imagen: 1 punto = 96/72 px.
-const HEADER_ROW_HEIGHT_PT = Math.ceil(HEADER_IMG_H * 72 / 96) + 3;
-
-/**
- * Rasteriza a PNG el mismo encabezado corporativo "Sistema de Gestión
- * Integrado" que se usa en pantalla y en el PDF (src/ui/encabezado-svg.js),
- * para incrustarlo como imagen en el Excel del maestro -- ExcelJS no sabe
- * dibujar SVG ni el corte diagonal directamente, así que se genera una vez
- * por exportación con el mismo SVG que usa el resto del sistema.
- *
- * Ojo con 3 detalles NO obvios (que no tiran error -- hay que mirar el
- * resultado para notarlos), encontrados al verificar esto en un browser real:
- *  1) encabezadoSvg() no trae width/height (solo viewBox): al decodificar
- *     ese SVG como Image() para dibujarlo en el canvas, el navegador le da
- *     un tamaño intrínseco muy chico por defecto (300x37) y se pierde
- *     nitidez/detalle del texto chico. Se fijan width/height explícitos
- *     antes de serializar.
- *  2) El <image> del logo, anidado DENTRO de ese SVG, no se pinta de forma
- *     confiable cuando el SVG se decodifica vía Image()+canvas (a diferencia
- *     de navegarlo como documento aparte, donde sí aparece). Se compone el
- *     logo aparte, dibujándolo como una 2da imagen sobre el mismo canvas.
- *  3) El font-family (Poppins/Arial, ver comprobante.css) vive en una hoja
- *     de estilos EXTERNA que no viaja al serializar solo el <svg> -- el
- *     texto cae al serif por defecto del navegador si no se fija como
- *     estilo inline (con el valor ya computado en el DOM real) antes de
- *     serializar.
- */
-async function headerPngDataUri({ codigo, fecha, revision, titulo, logoSrc }) {
-  const holder = document.createElement('div');
-  holder.style.position = 'fixed';
-  holder.style.left = '-99999px';
-  holder.style.top = '0';
-  holder.style.width = `${EH_ANCHO}px`;
-  holder.innerHTML = encabezadoSvg({ codigo, fecha, revision, titulo });
-  document.body.appendChild(holder);
-  try {
-    const svgEl = holder.querySelector('.eh-svg');
-    if (document.fonts?.ready) { try { await document.fonts.ready; } catch { /* no bloquea */ } }
-    ajustarTextosEncabezado(svgEl);
-
-    svgEl.setAttribute('width', String(EH_ANCHO));
-    svgEl.setAttribute('height', String(EH_ALTO));
-    svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    const textoRef = svgEl.querySelector('text');
-    const fuente = textoRef ? getComputedStyle(textoRef).fontFamily : '';
-    if (fuente) svgEl.style.fontFamily = fuente;
-
-    const xml = new XMLSerializer().serializeToString(svgEl);
-    const svgUri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
-
-    const scale = 2; // 2x para que se vea nítido dentro del Excel
-    const outW = EH_ANCHO * scale, outH = EH_ALTO * scale;
-    const canvas = document.createElement('canvas');
-    canvas.width = outW; canvas.height = outH;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, outW, outH);
-    ctx.drawImage(await cargarImagen(svgUri), 0, 0, outW, outH);
-
-    if (logoSrc) {
-      try {
-        const logoImg = await cargarImagen(logoSrc);
-        ctx.drawImage(logoImg, EH_LOGO_X * scale, EH_LOGO_Y * scale, EH_LOGO_W * scale, EH_LOGO_H * scale);
-      } catch (e) {
-        console.warn('[solicitudes] no se pudo componer el logo en el encabezado del Excel', e);
-      }
-    }
-
-    return canvas.toDataURL('image/png');
-  } finally {
-    document.body.removeChild(holder);
-  }
-}
-
-/** "Maestro de solicitudes": exporta TODAS las solicitudes (los 6 tipos), con su
- * detalle y el detalle/tiempos de cada aprobación, a un Excel con el mismo
- * lenguaje visual del PDF y los correos -- colores de marca, logo, y el
- * Estado resaltado por color -- más el código de formulario propio de cada
- * tipo (misma tabla que usa el PDF, ver DOCUMENTO_CODIGOS en config.js).
- * Siempre trae el universo completo (no solo lo que está filtrado en pantalla). */
+/** "Maestro de solicitudes" en Excel, con el diseño del SGC ("Concept 3",
+ * el mismo del PDF): encabezado + sección 1 (identificación del registro)
+ * como imagen y la sección 2 como tabla real, una fila por solicitud con su
+ * detalle y el detalle/tiempos de cada aprobación. Siempre trae el universo
+ * completo (no solo lo que está filtrado en pantalla). Ver ui/xlsx-sgc.js. */
 async function exportarMaestro() {
   const btn = document.getElementById('btn-maestro-excel');
   btn.disabled = true; btn.textContent = 'Generando...';
@@ -388,152 +251,84 @@ async function exportarMaestro() {
       Data.trabajadoresPorId(sols.map(s => s.trabajador_id)),
       Data.perfilesPorId(sols.flatMap(s => [s.solicitante_id, ...(s.aprobaciones || []).map(a => a.aprobador_id)]))
     ]);
-
     const maxAprob = Math.max(0, ...sols.map(s => (s.aprobaciones || []).length));
-    const durTexto = (ms) => {
-      if (ms == null || isNaN(ms)) return '';
-      const h = ms / 3600000;
-      if (h < 1) return Math.max(1, Math.round(ms / 60000)) + ' min';
-      if (h < 48) return (Math.round(h * 10) / 10) + ' h';
-      return (Math.round((h / 24) * 10) / 10) + ' d';
-    };
+    const capital = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : '');
+    const fechaChile = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' });
 
-    // Definición de columnas (orden fijo) -- "Código de formulario" es nueva:
-    // el código SGC (ej. RRH-FOR-CON-006) que le corresponde al tipo de esa fila.
+    // Identificación del registro: la misma del PDF del maestro (sgc-documentos.js)
+    const doc = documentoMaestro(
+      sols.map(s => ({ creada: s.created_at ? fechaChile.format(new Date(s.created_at)) : '' })),
+      { tipoLabels: TIPO_LABELS, codigoMaestro: MAESTRO_SOLICITUDES_CODIGO }
+    );
+
     const columnas = [
-      { header: 'Folio', width: 16, key: 'folio' },
-      { header: 'N° de solicitud', width: 16, key: 'codigo' },
-      { header: 'Tipo', width: 16, key: 'tipo' },
-      { header: 'Código de formulario', width: 20, key: 'codigoFormulario' },
-      { header: 'Estado', width: 12, key: 'estado' },
-      { header: 'Solicitante', width: 22, key: 'solicitante' },
-      { header: 'Trabajador', width: 22, key: 'trabajador' },
-      { header: 'Centro origen', width: 20, key: 'centroOrigen' },
-      { header: 'Centro destino', width: 20, key: 'centroDestino' },
-      { header: 'Fecha de creación', width: 20, key: 'creada' },
-      { header: 'Detalle', width: 55, key: 'detalle' },
-      { header: 'Motivo', width: 28, key: 'motivo' },
+      { titulo: 'N°', px: 46, alinear: 'centro', estilo: 'numero' },
+      { titulo: 'Folio', icono: 'hash', px: 150, estilo: 'fuerte' },
+      { titulo: 'N° de solicitud', icono: 'clipboard-list', px: 140, estilo: 'normal' },
+      { titulo: 'Tipo', icono: 'tag', px: 140, estilo: 'normal' },
+      { titulo: 'Código de formulario', icono: 'barcode', px: 150, estilo: 'normal' },
+      { titulo: 'Estado', icono: 'circle-check', px: 120, estilo: 'pildora' },
+      { titulo: 'Solicitante', icono: 'user', px: 175, estilo: 'normal' },
+      { titulo: 'Trabajador', icono: 'hard-hat', px: 180, estilo: 'normal' },
+      { titulo: 'Centro origen', icono: 'building-2', px: 180, estilo: 'normal' },
+      { titulo: 'Centro destino', icono: 'building-2', px: 180, estilo: 'normal' },
+      { titulo: 'Fecha de creación', icono: 'calendar-clock', px: 150, alinear: 'centro', estilo: 'normal' },
+      { titulo: 'Detalle', icono: 'file-text', px: 380, estilo: 'normal' },
+      { titulo: 'Motivo', icono: 'message-square', px: 240, estilo: 'normal' },
     ];
     for (let i = 1; i <= maxAprob; i++) {
       columnas.push(
-        { header: `Aprobador ${i}`, width: 20, key: `aprobador${i}` },
-        { header: `Decisión ${i}`, width: 12, key: `decision${i}` },
-        { header: `Asignado ${i}`, width: 20, key: `asignado${i}` },
-        { header: `Decidido ${i}`, width: 20, key: `decidido${i}` },
-        { header: `Tiempo respuesta ${i}`, width: 15, key: `tiempo${i}` },
+        { titulo: `Aprobador ${i}`, icono: 'user-check', px: 175, estilo: 'fuerte' },
+        { titulo: `Decisión ${i}`, icono: 'circle-check', px: 125, estilo: 'pildora' },
+        { titulo: `Asignado ${i}`, icono: 'calendar-clock', px: 150, alinear: 'centro', estilo: 'normal' },
+        { titulo: `Decidido ${i}`, icono: 'calendar-days', px: 150, alinear: 'centro', estilo: 'normal' },
+        { titulo: `Tiempo de respuesta ${i}`, icono: 'timer', px: 150, alinear: 'centro', estilo: 'normal' },
       );
     }
 
-    const filas = sols.map(s => {
+    const filas = sols.map((s, idx) => {
       const aprobs = (s.aprobaciones || []).slice().sort((a, b) => a.orden - b.orden);
-      const fila = {
-        folio: s.folio || '',
-        codigo: s.codigo || '',
-        tipo: TIPO_SOLICITUD_META[s.tipo]?.label || s.tipo,
-        codigoFormulario: DOCUMENTO_CODIGOS[s.tipo]?.codigo || '',
-        estado: s.estado,
-        solicitante: perfiles.get(s.solicitante_id)?.nombre || '',
-        trabajador: trab.get(s.trabajador_id)?.nombre || '',
-        centroOrigen: centrosMap.get(s.centro_origen_id)?.nombre || '',
-        centroDestino: centrosMap.get(s.centro_destino_id)?.nombre || '',
-        creada: s.created_at ? new Date(s.created_at).toLocaleString('es-CL') : '',
-        detalle: detalleTexto(s),
-        motivo: s.motivo || ''
-      };
+      const fila = [
+        idx + 1,
+        s.folio || '',
+        s.codigo || '',
+        TIPO_LABELS[s.tipo] || s.tipo,
+        DOCUMENTO_CODIGOS[s.tipo]?.codigo || '',
+        capital(s.estado),
+        perfiles.get(s.solicitante_id)?.nombre || '',
+        trab.get(s.trabajador_id)?.nombre || '',
+        centrosMap.get(s.centro_origen_id)?.nombre || '',
+        centrosMap.get(s.centro_destino_id)?.nombre || '',
+        s.created_at ? fechaHora(s.created_at) : '',
+        detalleTexto(s),
+        s.motivo || '',
+      ];
       for (let i = 1; i <= maxAprob; i++) {
         const a = aprobs[i - 1];
         const ms = a?.tiempo_respuesta != null
           ? a.tiempo_respuesta * 1000
           : (a?.decidido_at && a?.asignado_at ? new Date(a.decidido_at) - new Date(a.asignado_at) : null);
-        fila[`aprobador${i}`] = a ? (perfiles.get(a.aprobador_id)?.nombre || '') : '';
-        fila[`decision${i}`] = a ? a.decision : '';
-        fila[`asignado${i}`] = a?.asignado_at ? new Date(a.asignado_at).toLocaleString('es-CL') : '';
-        fila[`decidido${i}`] = a?.decidido_at ? new Date(a.decidido_at).toLocaleString('es-CL') : '';
-        fila[`tiempo${i}`] = durTexto(ms);
+        fila.push(
+          a ? (perfiles.get(a.aprobador_id)?.nombre || '') : '',
+          a ? capital(a.decision) : '',
+          a?.asignado_at ? fechaHora(a.asignado_at) : '',
+          a?.decidido_at ? fechaHora(a.decidido_at) : '',
+          a && ms != null ? duracion(ms) : '',
+        );
       }
       return fila;
     });
 
-    const hoy = new Date();
-    const nCols = columnas.length;
-    const estadoCol = columnas.findIndex(c => c.key === 'estado') + 1; // 1-based
-
-    const wb = new ExcelJS.Workbook();
-    wb.creator = 'SSI-RRHH · Metalium';
-    wb.created = hoy;
-    const ws = wb.addWorksheet('Maestro de solicitudes', { views: [{ state: 'frozen', ySplit: 3 }] });
-    ws.columns = columnas.map(c => ({ width: c.width }));
-
-    // ---- Fila 1: encabezado corporativo (mismo diseño que el PDF/pantalla,
-    // ver headerPngDataUri arriba) ----
-    ws.getRow(1).height = HEADER_ROW_HEIGHT_PT;
-    try {
-      const logo = await logoDataUriMaestro();
-      const fecha = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`;
-      const headerPng = await headerPngDataUri({
-        codigo: MAESTRO_SOLICITUDES_CODIGO,
-        fecha,
-        revision: '00',
-        titulo: 'Maestro de solicitudes',
-        logoSrc: logo,
-      });
-      const imgId = wb.addImage({ base64: headerPng, extension: 'png' });
-      ws.addImage(imgId, { tl: { col: 0, row: 0 }, ext: { width: HEADER_IMG_W, height: HEADER_IMG_H } });
-    } catch (e) {
-      // El maestro se exporta igual sin el encabezado -- nunca bloquea la descarga.
-      console.warn('[solicitudes] no se pudo generar el encabezado corporativo del Excel', e);
-    }
-
-    // ---- Fila 2: cantidad de solicitudes ----
-    // Sin fusionar y alineada a la izquierda (celda A2, bajo el logo): así
-    // queda visible de entrada sin tener que desplazarse, sin importar
-    // cuántas columnas de "Aprobador N" termine teniendo la planilla.
-    const cCant = ws.getCell(2, 1);
-    cCant.value = `${filas.length} solicitud(es)`;
-    cCant.font = { italic: true, size: 9, color: { argb: XL_GRIS_ETIQUETA } };
-    cCant.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
-    ws.getRow(2).height = 16;
-
-    // ---- Fila 3: encabezados de columna ----
-    const headerRow = ws.getRow(3);
-    columnas.forEach((c, i) => {
-      const cell = headerRow.getCell(i + 1);
-      cell.value = c.header;
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL_AZUL } };
-      cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
-      cell.alignment = { vertical: 'middle', wrapText: true };
+    const wb = nuevoLibroSgc();
+    await hojaSgc(wb, {
+      nombreHoja: 'Maestro de solicitudes',
+      doc,
+      columnas,
+      filas,
+      vacia: 'No hay solicitudes registradas.',
     });
-    headerRow.height = 26;
-    ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: nCols } };
-
-    // ---- Filas de datos: zebra + "Estado" resaltado por color ----
-    filas.forEach((fila, idx) => {
-      const r = ws.getRow(4 + idx);
-      const zebra = idx % 2 === 1;
-      columnas.forEach((c, i) => {
-        const cell = r.getCell(i + 1);
-        cell.value = fila[c.key] ?? '';
-        cell.font = { size: 10, color: { argb: XL_GRIS_TEXTO } };
-        cell.alignment = { vertical: 'top', wrapText: c.key === 'detalle' || c.key === 'motivo' };
-        if (zebra) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL_ZEBRA } };
-      });
-      const ce = r.getCell(estadoCol);
-      const { bg, fg } = estadoColorXl(fila.estado);
-      ce.value = fila.estado ? fila.estado.charAt(0).toUpperCase() + fila.estado.slice(1) : '';
-      ce.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-      ce.font = { bold: true, size: 10, color: { argb: fg } };
-      ce.alignment = { vertical: 'middle', horizontal: 'center' };
-    });
-
-    const buf = await wb.xlsx.writeBuffer();
-    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `Maestro_Solicitudes_${hoy.toISOString().slice(0, 10)}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(a.href);
+    const hoy = fechaChile.format(new Date());
+    await descargarLibroSgc(wb, `Maestro_Solicitudes_${hoy}.xlsx`);
 
     Toast.success('Maestro exportado', `${filas.length} solicitud(es).`);
   } catch (e) {

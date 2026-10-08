@@ -90,6 +90,17 @@
   font-size: 13px;
 }
 
+/* Aviso informativo dentro de un formulario (p. ej. plazo de 3 días hábiles
+   en Traslado / Cambio de cargo). Mismo formato que .form-error. */
+.form-info {
+  background: var(--info-bg);
+  border: 1px solid rgba(14, 165, 233, .35);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: var(--r);
+  font-size: 13px;
+}
+
 .form-actions {
   display: flex;
   justify-content: flex-end;

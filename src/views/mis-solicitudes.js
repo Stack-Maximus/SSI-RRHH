@@ -10,6 +10,11 @@ import { escapeHtml } from '../ui/utils.js';
 import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen } from '../ui/solicitud-format.js';
 import { nombreCandidatoRecl } from '../ui/contratacion-format.js';
 import { renderComprobante } from './comprobante.js';
+import { TIPOS_SOLICITUD_POR_ROL } from '../config.js';
+
+// Tipos que todavía tienen formulario en "Nueva solicitud" (Bono se quitó en
+// oct. 2026): solo esos muestran el botón Editar.
+const TIPOS_CON_FORMULARIO = new Set(Object.values(TIPOS_SOLICITUD_POR_ROL).flat());
 
 export async function renderMisSolicitudes(container) {
   container.innerHTML = '<div class="view-loading">Cargando...</div>';
@@ -44,7 +49,7 @@ export async function renderMisSolicitudes(container) {
   // Editable solo mientras siga pendiente y ningún aprobador haya decidido
   // todavía -- el RPC editar_solicitud() (migración 0017) revalida esto
   // mismo server-side, esto es solo para no mostrar el botón de más.
-  const puedeEditar = (s) => s.estado === 'pendiente' && (s.aprobaciones || []).every(a => a.decision === 'pendiente');
+  const puedeEditar = (s) => TIPOS_CON_FORMULARIO.has(s.tipo) && s.estado === 'pendiente' && (s.aprobaciones || []).every(a => a.decision === 'pendiente');
 
   const solMap = new Map(sols.map(s => [s.id, s]));
   const panelCandidatos = reclutPendientes.length

@@ -11,6 +11,8 @@
 
 import { escapeHtml } from './utils.js';
 import { TIPO_SOLICITUD_META, TIPO_RENOVACION_LABELS } from '../config.js';
+import { Data } from '../db/data.js';
+import { Toast } from './toast.js';
 
 export function estadoBadge(estado) {
   const map = {
@@ -40,7 +42,10 @@ export function tipoLabel(tipo) {
 
 export function fechaCorta(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
+  // Una fecha sola ('YYYY-MM-DD') se lee en hora local: new Date('2026-11-02')
+  // la toma como medianoche UTC y en Chile mostraba el día anterior.
+  const soloFecha = /^\d{4}-\d{2}-\d{2}$/.exec(String(iso));
+  const d = soloFecha ? new Date(`${iso}T12:00:00`) : new Date(iso);
   return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
@@ -69,11 +74,13 @@ export function resumen(sol, centrosMap, trabMap) {
       return `${escapeHtml(trab())} · ${escapeHtml(d.tipo_bono || 'Bono')}${d.monto != null ? ' · ' + pesos(d.monto) : ''}`;
     case 'cambio_cargo':
       return `${escapeHtml(trab())} · ${escapeHtml(d.cargo_actual || '—')} → ${escapeHtml(d.cargo_nuevo || '—')}`;
+    case 'cambio_turno':
+      return `${escapeHtml(trab())} · nuevo turno: ${escapeHtml(d.turno_nuevo || '—')}`;
     case 'renovacion':
       if (d.tipo_renovacion === 'obra_faena') return `${escapeHtml(trab())} · por obra o faena: ${escapeHtml(d.hito_obra || '—')}`;
       return `${escapeHtml(trab())} · ${d.indefinido ? 'pasa a indefinido' : 'hasta ' + escapeHtml(d.nueva_fecha_termino || d.nuevo_plazo || '—')}`;
     case 'desvinculacion':
-      return `${escapeHtml(trab())} · ${escapeHtml(d.causal || 'Desvinculación')}${d.fecha_desvinculacion ? ' · ' + escapeHtml(d.fecha_desvinculacion) : ''}`;
+      return `${escapeHtml(trab())} · ${escapeHtml(d.causal || 'Desvinculación')}${d.fecha_desvinculacion ? ' · ' + escapeHtml(fechaCorta(d.fecha_desvinculacion)) : ''}`;
     default:
       return escapeHtml(trab());
   }
@@ -137,6 +144,12 @@ export function detallePares(sol) {
         ['Motivo', d.motivo]
       ];
       break;
+    case 'cambio_turno':
+      pares = [
+        ['Turno nuevo', d.turno_nuevo],
+        ['Motivo', d.motivo]
+      ];
+      break;
     case 'renovacion':
       if (d.tipo_renovacion) {
         pares = [
@@ -162,6 +175,7 @@ export function detallePares(sol) {
       pares = [
         ['Causal', d.causal],
         ['Fecha de desvinculación', d.fecha_desvinculacion],
+        [ETIQUETA_ADJUNTO, d.adjunto?.nombre || (d.adjunto?.path ? 'Documento adjunto' : null)],
         ['Observaciones', d.observaciones]
       ];
       break;
@@ -171,10 +185,20 @@ export function detallePares(sol) {
   return pares.filter(([, v]) => v !== null && v !== undefined && v !== '');
 }
 
+const ETIQUETA_ADJUNTO = 'Documento adjunto';
+
 /** Detalle completo (campos del JSONB) según tipo, como lista de definiciones (HTML) */
 export function detalleHtml(sol) {
+  const path = sol.detalle?.adjunto?.path;
   const items = detallePares(sol)
-    .map(([k, v]) => `<div class="dl-row"><span class="dl-k">${k}</span><span class="dl-v">${escapeHtml(String(v))}</span></div>`)
+    .map(([k, v]) => {
+      // El adjunto se muestra como botón: abre una URL firmada de 5 minutos
+      // (el bucket es privado, ver instalarVisorAdjuntos()).
+      const valor = k === ETIQUETA_ADJUNTO && path
+        ? `<button type="button" class="link-btn" data-ver-adjunto="${escapeHtml(path)}">📎 ${escapeHtml(String(v))}</button>`
+        : escapeHtml(String(v));
+      return `<div class="dl-row"><span class="dl-k">${k}</span><span class="dl-v">${valor}</span></div>`;
+    })
     .join('');
   return `<div class="dl">${items || '<span class="muted">Sin detalle.</span>'}</div>`;
 }
@@ -182,4 +206,30 @@ export function detalleHtml(sol) {
 /** Detalle completo, como texto plano de una línea (para exportar a Excel) */
 export function detalleTexto(sol) {
   return detallePares(sol).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—';
+}
+
+/**
+ * Clic en cualquier [data-ver-adjunto] (botón que arma detalleHtml()): pide
+ * una URL firmada del bucket privado 'solicitud-adjuntos' y la abre en otra
+ * pestaña. Storage solo la entrega a quien puede ver esa solicitud (quien la
+ * creó, sus aprobadores, RRHH y admin -- políticas de la migración 0022).
+ * Se instala una sola vez desde main.js (delegado en document).
+ */
+export function instalarVisorAdjuntos() {
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest?.('[data-ver-adjunto]');
+    if (!btn) return;
+    e.preventDefault();
+    // Se abre la pestaña ANTES del await para que el navegador no la bloquee
+    // como ventana emergente; después se le asigna la URL.
+    const win = window.open('', '_blank');
+    try {
+      const url = await Data.urlAdjuntoSolicitud(btn.dataset.verAdjunto);
+      if (win) win.location.href = url; else window.open(url, '_blank');
+    } catch (err) {
+      console.error('[adjunto]', err);
+      win?.close();
+      Toast.error('No se pudo abrir el documento', err.message || '');
+    }
+  });
 }

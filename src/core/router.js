@@ -8,6 +8,7 @@ import { state } from './state.js';
 import { ROLES } from '../config.js';
 import { Toast } from '../ui/toast.js';
 import { Shell } from './shell.js';
+import { Modal } from '../ui/modal.js';
 
 import { renderInicio } from '../views/inicio.js';
 import { renderNuevaSolicitud } from '../views/nueva-solicitud.js';
@@ -24,6 +25,7 @@ import { renderHomologacion } from '../views/homologacion.js';
 import { renderChecklistDocumentos } from '../views/checklist-documentos.js';
 import { renderDashboardRRHH } from '../views/dashboard-rrhh.js';
 import { renderDashboardPrevencion } from '../views/dashboard-prevencion.js';
+import { renderAprobacionesPendientes } from '../views/aprobaciones-pendientes.js';
 import { makePlaceholder } from '../views/placeholder.js';
 
 const VIEWS = {
@@ -33,6 +35,7 @@ const VIEWS = {
   'bandeja':              renderBandeja,
   'solicitudes':          renderSolicitudes,
   'historial':            renderHistorial,
+  'aprobaciones-pendientes': renderAprobacionesPendientes,
   'contrataciones':       renderContrataciones,
   'homologacion':         renderHomologacion,
   'checklist-documentos': renderChecklistDocumentos,
@@ -47,11 +50,12 @@ const VIEWS = {
 
 const TITLES = {
   'inicio':               ['Inicio', 'Resumen de tu actividad'],
-  'nueva-solicitud':      ['Nueva solicitud', 'Crear una solicitud de ingreso o traslado'],
+  'nueva-solicitud':      ['Nueva solicitud', 'Elige el tipo de solicitud que necesitas'],
   'mis-solicitudes':      ['Mis solicitudes', 'Solicitudes que creaste y su estado'],
   'bandeja':              ['Bandeja de aprobación', 'Solicitudes pendientes de tu aprobación'],
   'solicitudes':          ['Solicitudes', 'Todas las solicitudes'],
   'historial':            ['Historial', 'Solicitudes finalizadas'],
+  'aprobaciones-pendientes': ['Aprobaciones pendientes', 'Quién tiene solicitudes por aprobar y hace cuánto · recordatorios'],
   'contrataciones':       ['Contratación', 'Ingresos aprobados en proceso de contratación'],
   'homologacion':         ['Homologación SST', 'Documentos de contratación para homologar ante el cliente'],
   'checklist-documentos': ['Checklist de documentos', 'Catálogo de documentos del proceso de contratación'],
@@ -71,6 +75,7 @@ export const Router = {
   // necesitan simplemente ignoran el segundo argumento.
   go(view, params) {
     if (!state.user) return;
+    Modal.close(); // un modal abierto (ej. Nueva solicitud) no sobrevive al cambio de vista
 
     const allowed = ROLES[state.user.role].menu;
     if (!allowed.includes(view)) {

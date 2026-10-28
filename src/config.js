@@ -11,10 +11,10 @@ export const ROLES = {
   solicitante:    { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
   supervisor:     { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
   aprobador:      { menu: ['inicio', 'bandeja'] },
-  rrhh:           { menu: ['inicio', 'solicitudes', 'historial', 'contrataciones', 'dashboard-rrhh'] },
+  rrhh:           { menu: ['inicio', 'solicitudes', 'historial', 'aprobaciones-pendientes', 'contrataciones', 'dashboard-rrhh'] },
   prevencionista: { menu: ['inicio', 'homologacion', 'dashboard-prevencion'] },
   admin:          { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes', 'bandeja',
-                            'solicitudes', 'historial', 'contrataciones', 'homologacion', 'checklist-documentos',
+                            'solicitudes', 'historial', 'aprobaciones-pendientes', 'contrataciones', 'homologacion', 'checklist-documentos',
                             'dashboard-rrhh', 'dashboard-prevencion',
                             'usuarios', 'centros-costo', 'cargos', 'trabajadores', 'kpis'] }
 };
@@ -29,10 +29,13 @@ export const ROLES = {
 // 'bono' se quitó de los 3 roles (oct. 2026, a pedido: "Bonos. Quitar todo
 // ese apartado"); la base también deja de aceptarlo (migración 0020). El
 // tipo sigue existiendo para mostrar las solicitudes de bono ya creadas.
+// 'cambio_turno' se agregó en oct. 2026 (migraciones 0021/0022): mismo
+// circuito que los otros tipos "de cambio" (aprueba el administrador de obra
+// del centro del trabajador).
 export const TIPOS_SOLICITUD_POR_ROL = {
-  solicitante: ['ingreso', 'traslado', 'aumento_sueldo', 'cambio_cargo', 'renovacion', 'desvinculacion'],
-  supervisor:  ['aumento_sueldo', 'cambio_cargo', 'renovacion', 'desvinculacion'],
-  admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'cambio_cargo', 'renovacion', 'desvinculacion']
+  solicitante: ['ingreso', 'traslado', 'aumento_sueldo', 'cambio_cargo', 'cambio_turno', 'renovacion', 'desvinculacion'],
+  supervisor:  ['aumento_sueldo', 'cambio_cargo', 'cambio_turno', 'renovacion', 'desvinculacion'],
+  admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'cambio_cargo', 'cambio_turno', 'renovacion', 'desvinculacion']
 };
 
 // Ícono + etiqueta de cada vista (para el sidebar)
@@ -43,6 +46,7 @@ export const NAV_META = {
   'bandeja':              { icon: '✅',     label: 'Bandeja' },
   'solicitudes':          { icon: '\u{1F4CB}', label: 'Solicitudes' },
   'historial':            { icon: '\u{1F5C2}️', label: 'Historial' },
+  'aprobaciones-pendientes': { icon: '⏰', label: 'Aprobaciones pendientes' },
   'contrataciones':       { icon: '\u{1F4BC}', label: 'Contratación' },
   'homologacion':         { icon: '\u{1F9BA}', label: 'Homologación SST' },
   'checklist-documentos': { icon: '\u{1F4C1}', label: 'Checklist documentos' },
@@ -68,7 +72,7 @@ export const ROLE_LABELS = {
 // de RRHH (dashboard "SLA Contratación"): se cierran a mano con el botón
 // "Marcar como procesado" en Solicitudes. ingreso cierra al subir el
 // Contrato de Trabajo; traslado, al completar sus 3 documentos.
-export const TIPOS_SOLICITUD_SIN_DOCUMENTO = ['aumento_sueldo', 'bono', 'cambio_cargo', 'renovacion', 'desvinculacion'];
+export const TIPOS_SOLICITUD_SIN_DOCUMENTO = ['aumento_sueldo', 'bono', 'cambio_cargo', 'cambio_turno', 'renovacion', 'desvinculacion'];
 
 // Etiquetas + ícono de cada tipo de solicitud (para segment-control, badges y listados)
 export const TIPO_SOLICITUD_META = {
@@ -77,6 +81,7 @@ export const TIPO_SOLICITUD_META = {
   aumento_sueldo:  { icon: '💰', label: 'Aumento de sueldo',  desc: 'Subir el sueldo líquido pactado' },
   bono:            { icon: '🎁', label: 'Bono',               desc: 'Asignar un bono puntual o periódico' },
   cambio_cargo:    { icon: '🔀', label: 'Cambio de cargo',    desc: 'Cambiar el cargo del trabajador' },
+  cambio_turno:    { icon: '🕒', label: 'Cambio de turno',    desc: 'Pasar a un trabajador a otro turno' },
   renovacion:      { icon: '⏳', label: 'Renovación',         desc: 'Renovar o extender el contrato' },
   desvinculacion:  { icon: '🔚', label: 'Desvinculación',     desc: 'Terminar la relación laboral de un trabajador' }
 };
@@ -127,20 +132,60 @@ export const TIPO_CONTRATO_POR_RENOVACION = {
 // del Código del Trabajo -- se deja "Otra causal" con detalle libre en el
 // campo Observaciones para cualquier caso que no encaje. La causal
 // disciplinaria (Art. 160) se quitó a pedido (oct. 2026); las solicitudes
-// antiguas que la tengan la siguen mostrando tal cual.
+// antiguas que la tengan la siguen mostrando tal cual. "Ausentismo" se
+// agregó en oct. 2026, a pedido.
 export const CAUSALES_DESVINCULACION = [
   'Renuncia voluntaria',
   'Mutuo acuerdo de las partes',
   'Vencimiento del plazo convenido',
   'Conclusión del trabajo o faena',
   'Necesidades de la empresa',
+  'Ausentismo',
   'Otra causal'
 ];
 
-// Aviso que se muestra en Traslado y Cambio de cargo. Coincide con la meta
-// de RRHH del dashboard "SLA Contratación" (SLA_DIAS = 3 en dashboard-rrhh.js):
-// desde que la solicitud queda aprobada hasta que RRHH cierra su parte.
+// Causales de desvinculación que exigen adjuntar un documento de respaldo
+// (la carta de renuncia firmada). La base de datos valida lo mismo
+// (trigger de la migración 0022), esto solo decide qué muestra el formulario.
+// Debe coincidir con CAUSALES_CON_ADJUNTO en _shared/solicitud-detalle.ts.
+export const CAUSALES_CON_ADJUNTO = ['Renuncia voluntaria'];
+
+// Adjuntos de una solicitud (bucket privado 'solicitud-adjuntos', 0022).
+export const ADJUNTO_SOLICITUD = {
+  bucket: 'solicitud-adjuntos',
+  maxBytes: 10 * 1024 * 1024,
+  accept: '.pdf,.png,.jpg,.jpeg,.doc,.docx'
+};
+
+// Turnos de trabajo: 3 turnos fijos, cada uno con su horario de Lunes a
+// Jueves y su horario (distinto, jornada reducida) del Viernes, más
+// "Artículo 22" (trabajador excluido de la limitación de jornada, Art. 22
+// del Código del Trabajo: sin horario fijo). Se guarda el texto completo tal
+// cual (detalle.turno en Ingreso, detalle.turno_nuevo en Cambio de turno).
+export const TURNOS = [
+  'Lunes a Jueves 08:00 a 17:30 · Viernes 08:00 a 17:00',
+  'Lunes a Jueves 07:30 a 17:00 · Viernes 07:30 a 16:30',
+  'Lunes a Jueves 21:00 a 06:00 · Viernes 22:00 a 06:00 (Turno Noche)',
+  'Artículo 22 (sin limitación de jornada)'
+];
+
+// Plazo máximo de RRHH para procesar CUALQUIER solicitud (aviso en todos
+// los formularios de "Nueva solicitud"). Coincide con la meta del dashboard
+// "SLA Contratación" (SLA_DIAS = 3 en dashboard-rrhh.js): desde que la
+// solicitud queda aprobada hasta que RRHH cierra su parte. Además, la fecha
+// de ingreso / traslado / efectiva no puede ser antes de hoy + este plazo.
 export const DIAS_HABILES_PROCESO_RRHH = 3;
+
+// Plazo máximo de RRHH para enviar candidatos en un proceso de
+// Reclutamiento y selección. Se cuenta por tanda: si el solicitante rechaza
+// a todos los candidatos, el plazo vuelve a empezar desde ese rechazo.
+export const DIAS_HABILES_RECLUTAMIENTO = 5;
+
+// Recordatorios a aprobadores (Edge Function notificar, 'recordatorio_aprobador'):
+// horas mínimas entre dos recordatorios iguales. Debe coincidir con
+// RECORDATORIO_ENFRIAMIENTO_HORAS en supabase/functions/notificar/index.ts
+// (que es el que realmente lo hace cumplir).
+export const RECORDATORIO_ENFRIAMIENTO_HORAS = 4;
 
 export const ESTADO_CONTRATACION_LABELS = {
   en_proceso: 'En proceso',
@@ -171,6 +216,8 @@ export const DOCUMENTO_CODIGOS = {
   aumento_sueldo:  { codigo: 'RRH-FOR-VAR-001', folioPrefijo: 'RRH-VAR-' },
   bono:            { codigo: 'RRH-FOR-VAR-002', folioPrefijo: 'RRH-BON-' },
   cambio_cargo:    { codigo: 'RRH-FOR-VAR-003', folioPrefijo: 'RRH-CAR-' },
+  // OJO: 'RRH-FOR-VAR-005' también es provisorio (mismo criterio que VAR-004).
+  cambio_turno:    { codigo: 'RRH-FOR-VAR-005', folioPrefijo: 'RRH-TUR-' },
   renovacion:      { codigo: 'RRH-FOR-CON-007', folioPrefijo: 'RRH-REN-' },
   // OJO: 'RRH-FOR-VAR-004' es un código provisorio (sigue la misma numeración
   // que los otros 3 tipos "VAR") -- confírmalo o reemplázalo por el código

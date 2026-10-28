@@ -44,10 +44,29 @@
 //   { type: 'reclutamiento_todos_rechazados',  reclutamiento_id } -> el solicitante rechazó a todos
 //                         los candidatos de la tanda vigente -- avisa a todo perfil con rol='rrhh'
 //                         para que agregue una tanda nueva.
+//   { type: 'recordatorio_aprobador', aprobador_id | solicitud_id } -> (oct. 2026) recordatorio
+//                         por correo, PERSONALIZADO, a un aprobador que tiene solicitudes esperando
+//                         su decisión (solo cuenta el turno vigente: la aprobación es secuencial):
+//        * aprobador_id -> lo pide RRHH o admin: un correo con TODAS sus solicitudes en turno.
+//        * solicitud_id -> lo pide quien creó la solicitud (o RRHH / admin): a quien(es) le toca
+//                          aprobar esa solicitud, solo con esa solicitud.
+//                         El mensaje (asunto, saludo, tono) depende de cuánto lleva esperando la
+//                         más antigua: al día (< 1 día hábil), atrasada (1-2) o crítica (3 o más),
+//                         y lista cada solicitud con su tiempo de espera. Para no saturar, no deja
+//                         repetir el mismo recordatorio antes de RECORDATORIO_ENFRIAMIENTO_HORAS
+//                         (responde 429 con el mensaje de cuándo se puede); cada envío queda en
+//                         public.recordatorios_aprobacion (migración 0022).
+//
+//  Botón "Ir a ..." en TODOS los correos (oct. 2026): lleva al sistema y, con ?ir=<vista>, abre
+//  directo la vista que corresponde (bandeja, mis-solicitudes, ...) después de iniciar sesión
+//  (ver Auth.vistaDelEnlace() en src/core/auth.js). La URL base sale del secret APP_URL
+//  (RECOMENDADO: configúralo con la URL pública de Vercel); si no está, se usa el origen del
+//  navegador que disparó el correo, solo si es https://*.vercel.app, https://*.metalium.cl o
+//  localhost (ver urlApp()).
 //
 //  Deploy:  supabase functions deploy notificar
 //  Secrets: GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_FROM_ADDRESS
-//           (opcional) APP_URL
+//           APP_URL (recomendado)
 // =====================================================================
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
@@ -55,6 +74,16 @@ import { encodeBase64 } from 'jsr:@std/encoding@1/base64';
 import { construirComprobantePdf } from '../_shared/pdf-comprobante.ts';
 import { tipoTxt } from '../_shared/solicitud-detalle.ts';
 import { LOGO_METALIUM_PNG_B64 } from '../_shared/logo.ts';
+import { diasHabilesEntre } from '../_shared/dias-habiles.js';
+
+// Horas mínimas entre dos recordatorios iguales al mismo aprobador (debe
+// coincidir con RECORDATORIO_ENFRIAMIENTO_HORAS en src/config.js).
+const RECORDATORIO_ENFRIAMIENTO_HORAS = 4;
+// Niveles de espera en días hábiles (deben coincidir con src/ui/aprobacion-turno.js).
+const ESPERA_DIAS_ATRASADA = 1;
+const ESPERA_DIAS_CRITICA = 3;
+// Plazo de RRHH una vez aprobada (src/config.js DIAS_HABILES_PROCESO_RRHH).
+const DIAS_HABILES_PROCESO_RRHH = 3;
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -68,7 +97,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
 
   try {
-    const { type, solicitud_id, contratacion_id, reclutamiento_id } = await req.json();
+    const { type, solicitud_id, contratacion_id, reclutamiento_id, aprobador_id } = await req.json();
     if (!type) return json({ error: 'Falta type.' }, 400);
 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -82,7 +111,7 @@ Deno.serve(async (req) => {
     if (!user) return json({ error: 'No autenticado.' }, 401);
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-    const appUrl = Deno.env.get('APP_URL') || '';
+    const appUrl = urlApp(req);
 
     // ---- contratación iniciada -> avisa al prevencionista del centro ----
     // Va antes del resto porque usa `contratacion_id`, no `solicitud_id`.
@@ -284,6 +313,11 @@ Deno.serve(async (req) => {
         }
       }
       return json({ ok: true, enviados });
+    }
+
+    // ---- Recordatorio a aprobador(es) con solicitudes en su turno ----
+    if (type === 'recordatorio_aprobador') {
+      return await recordatorioAprobador(admin, user.id, { aprobador_id, solicitud_id }, appUrl);
     }
 
     if (!solicitud_id) return json({ error: 'Falta solicitud_id.' }, 400);
@@ -513,17 +547,37 @@ function shell(inner: string) {
       <tr><td style="padding:22px 32px 4px;color:${GRIS_TEXTO};font-size:14.5px;line-height:1.6">${inner}</td></tr>
       <tr><td style="padding:22px 32px 28px">
         <div style="border-top:1px solid #edf0f4;padding-top:16px;font-size:11.5px;color:#9aa2b3;line-height:1.6">
-          Metalium SpA · Sistema de Solicitudes de Ingreso y Traslado de Personal.<br/>
+          Metalium SpA · Solicitud de Servicio Interno Recursos Humanos - Homologación (SSI-RRHH-SST).<br/>
           Este es un correo automático -- no hace falta responderlo.
         </div>
       </td></tr>
     </table>
   </div>`;
 }
-function boton(appUrl: string, txt: string) {
+/**
+ * URL base del sistema para los botones de los correos. Primero el secret
+ * APP_URL; si no está configurado, el origen del navegador que disparó el
+ * evento, pero SOLO si es un dominio esperado (no se arma un enlace a
+ * cualquier sitio que diga el encabezado Origin).
+ */
+const ORIGEN_PERMITIDO = /^(https:\/\/([a-z0-9-]+\.)*(vercel\.app|metalium\.cl)|http:\/\/localhost(:\d+)?)$/i;
+function urlApp(req: Request): string {
+  const env = (Deno.env.get('APP_URL') || '').trim().replace(/\/+$/, '');
+  if (env) return env;
+  const origin = (req.headers.get('Origin') || '').trim().replace(/\/+$/, '');
+  return ORIGEN_PERMITIDO.test(origin) ? origin : '';
+}
+
+/**
+ * Botón "Ir a ..." del correo. Con `vista`, el enlace abre directo esa
+ * vista después de iniciar sesión (?ir=<vista>, si el rol tiene acceso; si
+ * no, cae en Inicio). Sin URL base configurada no se muestra (ver urlApp()).
+ */
+function boton(appUrl: string, txt: string, vista = '') {
   if (!appUrl) return '';
+  const href = vista ? `${appUrl}/?ir=${encodeURIComponent(vista)}` : `${appUrl}/`;
   return `<div style="text-align:center;margin:24px 0 4px">
-    <a href="${appUrl}" style="display:inline-block;background:${AZUL};color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">${txt}</a>
+    <a href="${href}" style="display:inline-block;background:${AZUL};color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">${txt}</a>
   </div>`;
 }
 /** Caja de datos clave (label -> valor), acento azul a la izquierda. */
@@ -553,7 +607,7 @@ function correoPendiente(nombre: string, sol: any, appUrl: string) {
     <p style="margin:0 0 4px">Hola ${nombre},</p>
     <p style="margin:0">Tienes una solicitud pendiente de tu aprobación.</p>
     ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
-    ${boton(appUrl, 'Ir a la bandeja')}`);
+    ${boton(appUrl, 'Ir a mi bandeja', 'bandeja')}`);
 }
 function correoEstado(nombre: string, sol: any, appUrl: string) {
   const aprobada = sol.estado === 'aprobada';
@@ -561,28 +615,28 @@ function correoEstado(nombre: string, sol: any, appUrl: string) {
     <p style="margin:0 0 4px">Hola ${nombre},</p>
     <p style="margin:0">Tu solicitud quedó ${badge(aprobada ? 'Aprobada' : 'Rechazada', aprobada ? VERDE_BG : ROJO_BG, aprobada ? VERDE_FG : ROJO_FG)}.</p>
     ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
-    ${boton(appUrl, 'Ver mis solicitudes')}`);
+    ${boton(appUrl, 'Ver mis solicitudes', 'mis-solicitudes')}`);
 }
 function correoAprobada(nombre: string, sol: any, appUrl: string) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
     <p style="margin:0">La solicitud quedó ${badge('Aprobada', VERDE_BG, VERDE_FG)}. Adjuntamos el comprobante en PDF con el detalle de lo aprobado.</p>
     ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
-    ${boton(appUrl, 'Ver en SSI-RRHH')}`);
+    ${boton(appUrl, 'Ir a SSI-RRHH')}`);
 }
 function correoRrhhCerrado(nombre: string, sol: any, nombreEspecifico: string | null, appUrl: string) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
     <p style="margin:0">RRHH ya terminó de procesar tu solicitud${nombreEspecifico ? ` de <b>${nombreEspecifico}</b>` : ''}.</p>
     ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
-    ${boton(appUrl, 'Ver mis solicitudes')}`);
+    ${boton(appUrl, 'Ver mis solicitudes', 'mis-solicitudes')}`);
 }
 function correoHomologacionAutorizada(nombre: string, sol: any, nombreEspecifico: string | null, appUrl: string) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
     <p style="margin:0">El proceso de homologación de tu solicitud terminó: ${nombreEspecifico ? `<b>${nombreEspecifico}</b>` : 'el trabajador'} ya está autorizado para ingresar a la obra.</p>
     ${infoCard([['Tipo', tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
-    ${boton(appUrl, 'Ver mis solicitudes')}`);
+    ${boton(appUrl, 'Ver mis solicitudes', 'mis-solicitudes')}`);
 }
 /** Al solicitante original: aviso simple del rechazo + cuántos van (informativo, sin detalle de documentos). */
 function correoHomologacionRechazada(nombre: string, sol: any, nombreEspecifico: string | null, rechazo: any, totalRechazos: number, appUrl: string) {
@@ -597,7 +651,7 @@ function correoHomologacionRechazada(nombre: string, sol: any, nombreEspecifico:
       ['N° de rechazos', String(totalRechazos)],
     ])}
     <p style="margin:12px 0 0;font-size:13px;color:${GRIS_ETIQUETA}">El plazo de homologación de este caso se extiende automáticamente por cada rechazo.</p>
-    ${boton(appUrl, 'Ver mis solicitudes')}`);
+    ${boton(appUrl, 'Ver mis solicitudes', 'mis-solicitudes')}`);
 }
 
 /** Al Gerente de Prevención: copia completa (quién rechazó, motivo, documentos marcados si los hay). */
@@ -616,7 +670,7 @@ function correoHomologacionRechazadaGerente(
       ['Documento(s) marcado(s)', nombresDocs.length ? nombresDocs.map((n) => escHtml(n)).join(', ') : 'Ninguno'],
       ['N° de rechazos de este caso', String(totalRechazos)],
     ])}
-    ${boton(appUrl, 'Ver en SSI-RRHH')}`);
+    ${boton(appUrl, 'Ir a Homologación SST', 'homologacion')}`);
 }
 
 /** A RRHH: solo cuando el rechazo marcó documento(s) -- pide corregir/reemplazar. */
@@ -632,7 +686,7 @@ function correoHomologacionRechazadaRRHH(nombre: string, sol: any, nombreEspecif
       ['Folio', sol.folio],
     ])}
     <p style="margin:12px 0 0;font-size:13px;color:${GRIS_ETIQUETA}">Corrige o reemplaza el/los documento(s) -- Prevención vuelve a revisar el caso desde ahí.</p>
-    ${boton(appUrl, nombreEspecifico ? 'Ir a Contratación' : 'Ir a Solicitudes')}`);
+    ${boton(appUrl, nombreEspecifico ? 'Ir a Contratación' : 'Ir a Solicitudes', nombreEspecifico ? 'contrataciones' : 'solicitudes')}`);
 }
 
 function correoContratacionIniciada(nombre: string, contrat: any, sol: any, centro: any, appUrl: string) {
@@ -650,7 +704,7 @@ function correoContratacionIniciada(nombre: string, contrat: any, sol: any, cent
       ['Tipo de trabajador', TIPO_TRAB_LABELS[contrat.tipo_trabajador] ?? contrat.tipo_trabajador],
       ['Solicitud', sol.folio || sol.codigo],
     ])}
-    ${boton(appUrl, 'Ir a Homologación SST')}`);
+    ${boton(appUrl, 'Ir a Homologación SST', 'homologacion')}`);
 }
 
 /** Al solicitante: RRHH mandó una tanda de candidatos para que elija o rechace. */
@@ -659,7 +713,7 @@ function correoReclutamientoOpciones(nombre: string, sol: any, cantidad: number,
     <p style="margin:0 0 4px">Hola ${nombre},</p>
     <p style="margin:0">RRHH envió ${cantidad} candidato${cantidad === 1 ? '' : 's'} para tu solicitud de ingreso. Revísalos y elige uno, o recházalos si ninguno calza.</p>
     ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
-    ${boton(appUrl, 'Ver candidatos')}`);
+    ${boton(appUrl, 'Ver candidatos', 'mis-solicitudes')}`);
 }
 /** A RRHH: el solicitante eligió candidato -- ya se creó la contratación sola. */
 function correoReclutamientoElegido(nombre: string, sol: any, candidatoNombre: string, appUrl: string) {
@@ -667,13 +721,282 @@ function correoReclutamientoElegido(nombre: string, sol: any, candidatoNombre: s
     <p style="margin:0 0 4px">Hola ${nombre},</p>
     <p style="margin:0">El solicitante eligió a ${candidatoNombre ? `<b>${escHtml(candidatoNombre)}</b>` : 'un candidato'} para la solicitud ${sol.codigo}. Ya se creó la contratación -- continúa el proceso desde ahí.</p>
     ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
-    ${boton(appUrl, 'Ir a Contratación')}`);
+    ${boton(appUrl, 'Ir a Contratación', 'contrataciones')}`);
 }
 /** A RRHH: el solicitante rechazó a todos los candidatos de la tanda vigente. */
 function correoReclutamientoTodosRechazados(nombre: string, sol: any, appUrl: string) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">El solicitante rechazó a todos los candidatos enviados para la solicitud ${sol.codigo}. Puedes agregar una nueva tanda de candidatos cuando quieras.</p>
+    <p style="margin:0">El solicitante rechazó a todos los candidatos enviados para la solicitud ${sol.codigo}. Agrega una nueva tanda de candidatos desde Contratación: el plazo de reclutamiento (5 días hábiles) vuelve a correr desde este rechazo.</p>
     ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
-    ${boton(appUrl, 'Ir a Solicitudes')}`);
+    ${boton(appUrl, 'Ir a Contratación', 'contrataciones')}`);
+}
+
+// =====================================================================
+// Recordatorio a aprobadores (oct. 2026) -- type 'recordatorio_aprobador'
+// =====================================================================
+type NivelEspera = 'al_dia' | 'atrasada' | 'critica';
+
+/**
+ * Fecha "de pared" en Chile como Date. dias-habiles.js trabaja con la hora
+ * LOCAL del proceso (UTC en Supabase): sin esto, una solicitud creada a las
+ * 22:00 en Chile se contaría en el día siguiente.
+ */
+function aChile(f: string | Date): Date {
+  return new Date(new Date(f).toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+}
+
+/** Mismo criterio que nivelEspera() en src/ui/aprobacion-turno.js. */
+function nivelEspera(desde: string, ahora = new Date()) {
+  const horas = Math.max(0, (ahora.getTime() - new Date(desde).getTime()) / 36e5);
+  const dias = diasHabilesEntre(aChile(desde), aChile(ahora));
+  const nivel: NivelEspera = dias >= ESPERA_DIAS_CRITICA ? 'critica' : dias >= ESPERA_DIAS_ATRASADA ? 'atrasada' : 'al_dia';
+  const h = Math.floor(horas);
+  const texto = dias >= 1
+    ? `${dias} día${dias === 1 ? '' : 's'} hábil${dias === 1 ? '' : 'es'}`
+    : horas < 1 ? 'menos de 1 hora' : `${h} hora${h === 1 ? '' : 's'}`;
+  return { dias, horas, nivel, texto };
+}
+
+const fechaHoraCL = (f: string | Date) => new Date(f).toLocaleString('es-CL', {
+  timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+const diaCL = (f: string | Date) => new Date(f).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
+const horaCL = (f: string | Date) => new Date(f).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+/** "hoy a las 16:51" o "el 29-10-2026 a las 09:10" (hora de Chile). */
+const cuandoCL = (f: string | Date) => diaCL(f) === diaCL(new Date()) ? `hoy a las ${horaCL(f)}` : `el ${diaCL(f)} a las ${horaCL(f)}`;
+
+const APR_FIELDS = 'solicitud_id, aprobador_id, orden, decision, asignado_at, decidido_at';
+
+/**
+ * Aprobaciones a las que les toca decidir ahora en una solicitud pendiente
+ * (menor orden entre las pendientes) y desde cuándo esperan: la última
+ * decisión anterior, o la creación de la solicitud si es el primer turno.
+ */
+function aprobacionesEnTurno(sol: any, aprs: any[]) {
+  const pend = aprs.filter((a) => a.decision === 'pendiente');
+  if (!pend.length) return [];
+  const min = Math.min(...pend.map((a) => a.orden));
+  return pend.filter((a) => a.orden === min).map((a) => {
+    const fechas = [sol.created_at, a.asignado_at,
+      ...aprs.filter((x) => x.orden < a.orden && x.decidido_at).map((x) => x.decidido_at)].filter(Boolean);
+    const desde = fechas.reduce((m: string, f: string) => (new Date(f) > new Date(m) ? f : m), fechas[0]);
+    return { ...a, desde };
+  });
+}
+
+async function recordatorioAprobador(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  userId: string,
+  { aprobador_id, solicitud_id }: { aprobador_id?: string; solicitud_id?: string },
+  appUrl: string,
+) {
+  if (!aprobador_id && !solicitud_id) return json({ error: 'Falta aprobador_id o solicitud_id.' }, 400);
+
+  const { data: yo } = await admin.from('perfiles').select('id, nombre, rol, activo').eq('id', userId).single();
+  if (!yo || yo.activo === false) return json({ error: 'Tu cuenta no está activa.' }, 403);
+  const esGestion = yo.rol === 'admin' || yo.rol === 'rrhh';
+
+  // objetivos: a quién se escribe y con qué solicitudes
+  let objetivos: { aprobadorId: string; items: { sol: any; desde: string }[] }[] = [];
+  let origen: 'rrhh_admin' | 'solicitante' = 'rrhh_admin';
+  let solicitudUnica: any = null;
+
+  if (aprobador_id) {
+    // RRHH / admin: todas las solicitudes en turno de ese aprobador.
+    if (!esGestion) return json({ error: 'Solo RRHH o el administrador pueden enviar este recordatorio.' }, 403);
+    const { data: suyas } = await admin
+      .from('aprobaciones').select('solicitud_id').eq('aprobador_id', aprobador_id).eq('decision', 'pendiente');
+    const ids = [...new Set((suyas ?? []).map((a: any) => a.solicitud_id))];
+    const items: { sol: any; desde: string }[] = [];
+    if (ids.length) {
+      const { data: sols } = await admin.from('solicitudes').select(SOL_FIELDS).in('id', ids).eq('estado', 'pendiente');
+      const { data: aprs } = await admin.from('aprobaciones').select(APR_FIELDS).in('solicitud_id', ids);
+      for (const s of sols ?? []) {
+        const turno = aprobacionesEnTurno(s, (aprs ?? []).filter((a: any) => a.solicitud_id === s.id));
+        const mio = turno.find((a) => a.aprobador_id === aprobador_id);
+        if (mio) items.push({ sol: s, desde: mio.desde });
+      }
+    }
+    if (!items.length) return json({ error: 'Este aprobador no tiene solicitudes esperando su decisión en este momento.' }, 400);
+    objetivos = [{ aprobadorId: aprobador_id, items }];
+  } else {
+    // Quien creó la solicitud (o RRHH / admin): solo esa solicitud, a quien(es) le toca.
+    const { data: s } = await admin.from('solicitudes').select(SOL_FIELDS).eq('id', solicitud_id).single();
+    if (!s) return json({ error: 'Solicitud no encontrada.' }, 404);
+    if (s.solicitante_id !== userId && !esGestion) {
+      return json({ error: 'Solo quien creó la solicitud (o RRHH / el administrador) puede enviar este recordatorio.' }, 403);
+    }
+    if (s.estado !== 'pendiente') return json({ error: 'Esta solicitud ya no está pendiente de aprobación.' }, 400);
+    const { data: aprs } = await admin.from('aprobaciones').select(APR_FIELDS).eq('solicitud_id', s.id);
+    const turno = aprobacionesEnTurno(s, aprs ?? []);
+    if (!turno.length) return json({ error: 'Esta solicitud no tiene aprobadores pendientes.' }, 400);
+    origen = s.solicitante_id === userId ? 'solicitante' : 'rrhh_admin';
+    solicitudUnica = s;
+    objetivos = turno.map((t) => ({ aprobadorId: t.aprobador_id, items: [{ sol: s, desde: t.desde }] }));
+  }
+
+  // Perfiles involucrados (aprobadores, solicitantes, quien envió antes)
+  const solicitantes = objetivos.flatMap((o) => o.items.map((i) => i.sol.solicitante_id));
+  const { data: pers } = await admin.from('perfiles').select('id, nombre, email, activo, rol')
+    .in('id', [...new Set([...objetivos.map((o) => o.aprobadorId), ...solicitantes])]);
+  const pmap = new Map<string, any>((pers ?? []).map((p: any) => [p.id, p]));
+
+  // Enfriamiento: no repetir el mismo recordatorio antes de N horas.
+  const desdeEnfr = new Date(Date.now() - RECORDATORIO_ENFRIAMIENTO_HORAS * 3600 * 1000).toISOString();
+  for (const o of objetivos) {
+    const { data: previos } = await admin.from('recordatorios_aprobacion')
+      .select('created_at, enviado_por, solicitud_id, solicitudes_incluidas')
+      .eq('aprobador_id', o.aprobadorId).gte('created_at', desdeEnfr)
+      .order('created_at', { ascending: false }).limit(50);
+    const choca = (previos ?? []).find((r: any) => solicitudUnica
+      ? r.solicitud_id === solicitudUnica.id || (Array.isArray(r.solicitudes_incluidas) && r.solicitudes_incluidas.includes(solicitudUnica.id))
+      : r.solicitud_id === null);
+    if (choca) {
+      const { data: quien } = await admin.from('perfiles').select('nombre').eq('id', choca.enviado_por).single();
+      const proximo = new Date(new Date(choca.created_at).getTime() + RECORDATORIO_ENFRIAMIENTO_HORAS * 3600 * 1000);
+      const nombreApr = pmap.get(o.aprobadorId)?.nombre || 'este aprobador';
+      return json({
+        error: `Ya se le envió un recordatorio a ${nombreApr} ${cuandoCL(choca.created_at)}${quien?.nombre ? ` (lo pidió ${quien.nombre})` : ''}. Podrás enviar otro ${cuandoCL(proximo)}.`,
+        proximo_permitido: proximo.toISOString(),
+      }, 429);
+    }
+  }
+
+  // Datos para el detalle de cada fila del correo
+  const todas = objetivos.flatMap((o) => o.items.map((i) => i.sol));
+  const trabIds = [...new Set(todas.map((s) => s.trabajador_id).filter(Boolean))];
+  const centroIds = [...new Set(todas.map((s) => s.centro_origen_id).filter(Boolean))];
+  const { data: trabs } = trabIds.length
+    ? await admin.from('trabajadores').select('id, nombre').in('id', trabIds) : { data: [] as any[] };
+  const { data: centros } = centroIds.length
+    ? await admin.from('centros_costo').select('id, nombre').in('id', centroIds) : { data: [] as any[] };
+  const tmap = new Map<string, string>((trabs ?? []).map((t: any) => [t.id, t.nombre]));
+  const cmap = new Map<string, string>((centros ?? []).map((c: any) => [c.id, c.nombre]));
+  const detalleCorto = (s: any): string => {
+    const quien = s.tipo === 'ingreso'
+      ? `${s.detalle?.cargo || 'Cargo'} × ${s.detalle?.cantidad || 1}`
+      : (tmap.get(s.trabajador_id) || 'Trabajador');
+    const centro = cmap.get(s.centro_origen_id);
+    return centro ? `${quien} · ${centro}` : quien;
+  };
+
+  const ROL_TXT: Record<string, string> = { admin: 'administrador', rrhh: 'RRHH', solicitante: 'solicitante', supervisor: 'supervisor' };
+  const pedidoPor = { nombre: yo.nombre ?? '', rol: ROL_TXT[yo.rol] ?? yo.rol };
+
+  const token = await graphToken();
+  const destinatarios: string[] = [];
+  const sinCorreo: string[] = [];
+  for (const o of objetivos) {
+    const apr = pmap.get(o.aprobadorId);
+    if (!apr?.email || apr.activo === false) { sinCorreo.push(apr?.nombre || 'un aprobador'); continue; }
+    const filas = o.items
+      .map((i) => ({
+        sol: i.sol,
+        desde: i.desde,
+        espera: nivelEspera(i.desde),
+        detalle: detalleCorto(i.sol),
+        solicitante: pmap.get(i.sol.solicitante_id)?.nombre || '—',
+      }))
+      .sort((a, b) => new Date(a.desde).getTime() - new Date(b.desde).getTime());
+    const { asunto, html } = correoRecordatorio(apr.nombre ?? '', filas, pedidoPor, origen, appUrl);
+    await graphSend(token, apr.email, asunto, html);
+    await admin.from('recordatorios_aprobacion').insert({
+      aprobador_id: o.aprobadorId,
+      solicitud_id: solicitudUnica?.id ?? null,
+      enviado_por: userId,
+      origen,
+      solicitudes_incluidas: o.items.map((i) => i.sol.id),
+    });
+    destinatarios.push(apr.nombre ?? apr.email);
+  }
+
+  if (!destinatarios.length) {
+    return json({ error: `${sinCorreo.join(', ')} no tiene correo registrado o su cuenta está inactiva.` }, 400);
+  }
+  return json({ ok: true, enviados: destinatarios.length, destinatarios, sin_correo: sinCorreo });
+}
+
+const NIVEL_ESTILO: Record<NivelEspera, { etiqueta: string; bg: string; fg: string }> = {
+  al_dia:   { etiqueta: 'Al día',   bg: '#e0f2fe', fg: '#0369a1' },
+  atrasada: { etiqueta: 'Atrasada', bg: '#fef3c7', fg: '#92400e' },
+  critica:  { etiqueta: 'Crítica',  bg: ROJO_BG,   fg: ROJO_FG },
+};
+
+/**
+ * Correo de recordatorio, personalizado por aprobador: lo saluda por su
+ * nombre, el asunto y el tono dependen de cuánto lleva esperando la
+ * solicitud más antigua (al día / atrasada / crítica), y lista cada
+ * solicitud con su propio tiempo de espera.
+ */
+function correoRecordatorio(
+  nombre: string,
+  filas: { sol: any; desde: string; espera: ReturnType<typeof nivelEspera>; detalle: string; solicitante: string }[],
+  pedidoPor: { nombre: string; rol: string },
+  origen: 'rrhh_admin' | 'solicitante',
+  appUrl: string,
+) {
+  const n = filas.length;
+  const peor = filas[0];
+  const nivel = peor.espera.nivel;
+  const est = NIVEL_ESTILO[nivel];
+  const plural = n === 1 ? 'solicitud' : 'solicitudes';
+  const espera = escHtml(peor.espera.texto);
+  const codigo = escHtml(peor.sol.codigo || peor.sol.folio || '');
+
+  let asunto: string;
+  let intro: string;
+  if (origen === 'solicitante') {
+    asunto = nivel === 'critica'
+      ? `Urgente: la solicitud ${peor.sol.codigo} lleva ${peor.espera.texto} esperando tu aprobación`
+      : `Recordatorio: la solicitud ${peor.sol.codigo} espera tu aprobación`;
+    intro = `<b>${escHtml(pedidoPor.nombre)}</b> te pide revisar su solicitud <b>${codigo}</b>, que lleva <b>${espera}</b> esperando tu aprobación.`;
+  } else if (nivel === 'critica') {
+    asunto = `Urgente: ${n} ${plural} esperan tu aprobación hace ${peor.espera.texto}`;
+    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobación y la más antigua ya lleva <b>${espera}</b>.`;
+  } else if (nivel === 'atrasada') {
+    asunto = `Recordatorio: ${n} ${plural} esperan tu aprobación (${peor.espera.texto})`;
+    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobación; la más antigua lleva <b>${espera}</b>.`;
+  } else {
+    asunto = `Recordatorio: tienes ${n} ${plural} por aprobar`;
+    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobación en SSI-RRHH.`;
+  }
+  const cierre = nivel === 'critica'
+    ? `Es urgente: ${n === 1 ? 'la solicitud no avanza' : 'las solicitudes no avanzan'} hasta que decidas, y una vez aprobada${n === 1 ? '' : 's'} RRHH todavía necesita hasta ${DIAS_HABILES_PROCESO_RRHH} días hábiles para procesarla${n === 1 ? '' : 's'}.`
+    : nivel === 'atrasada'
+      ? `Te pedimos revisar${n === 1 ? 'la' : 'las'} a la brevedad: hasta que decidas, ${n === 1 ? 'la solicitud no avanza' : 'no avanzan'}.`
+      : `Mientras antes ${n === 1 ? 'la revises' : 'las revises'}, antes puede seguir el proceso.`;
+
+  const color = (nv: NivelEspera) => NIVEL_ESTILO[nv].fg;
+  const tr = filas.map((f) => `
+    <tr>
+      <td style="padding:8px 8px 8px 0;border-top:1px solid #edf0f4;vertical-align:top">
+        <div style="font-weight:700;color:${NAVY};font-size:13px">${escHtml(f.sol.codigo || '—')}</div>
+        <div style="color:${GRIS_ETIQUETA};font-size:11.5px">${escHtml(tipoTxt(f.sol.tipo).replace(/^./, (c) => c.toUpperCase()))}</div>
+      </td>
+      <td style="padding:8px;border-top:1px solid #edf0f4;vertical-align:top;font-size:12.5px;color:${GRIS_TEXTO}">
+        ${escHtml(f.detalle)}<div style="color:${GRIS_ETIQUETA};font-size:11.5px">Solicita: ${escHtml(f.solicitante)}</div>
+      </td>
+      <td style="padding:8px 0 8px 8px;border-top:1px solid #edf0f4;vertical-align:top;text-align:right;white-space:nowrap">
+        <div style="font-weight:700;color:${color(f.espera.nivel)};font-size:13px">${escHtml(f.espera.texto)}</div>
+        <div style="color:${GRIS_ETIQUETA};font-size:11px">desde ${escHtml(fechaHoraCL(f.desde))}</div>
+      </td>
+    </tr>`).join('');
+
+  const html = shell(`
+    <p style="margin:0 0 4px">Hola ${escHtml(nombre)},</p>
+    <p style="margin:0">${intro} ${badge(est.etiqueta, est.bg, est.fg)}</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 6px">
+      <tr>
+        <td style="padding:0 8px 6px 0;color:${GRIS_ETIQUETA};font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Solicitud</td>
+        <td style="padding:0 8px 6px;color:${GRIS_ETIQUETA};font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Detalle</td>
+        <td style="padding:0 0 6px 8px;color:${GRIS_ETIQUETA};font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-align:right">Esperando</td>
+      </tr>
+      ${tr}
+    </table>
+    <p style="margin:12px 0 0">${cierre}</p>
+    ${boton(appUrl, 'Ir a mi bandeja', 'bandeja')}
+    <p style="margin:16px 0 0;font-size:12px;color:${GRIS_ETIQUETA}">Recordatorio enviado a pedido de ${escHtml(pedidoPor.nombre)} (${escHtml(pedidoPor.rol)}).</p>`);
+  return { asunto, html };
 }

@@ -11,6 +11,7 @@ import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen } from '../u
 import { nombreCandidatoRecl } from '../ui/contratacion-format.js';
 import { renderComprobante } from './comprobante.js';
 import { TIPOS_SOLICITUD_POR_ROL } from '../config.js';
+import { aprobacionesEnTurno, esperaDesde, esperaBadge, recordar } from '../ui/aprobacion-turno.js';
 
 // Tipos que todavía tienen formulario en "Nueva solicitud" (Bono se quitó en
 // oct. 2026): solo esos muestran el botón Editar.
@@ -57,8 +58,11 @@ export async function renderMisSolicitudes(container) {
     : '';
 
   const cards = sols.map(s => {
+    // El paso al que le toca decidir muestra hace cuánto espera (y habilita
+    // el botón 🔔 Recordar, que le manda un correo a ese aprobador).
+    const enTurno = new Set(aprobacionesEnTurno(s));
     const steps = (s.aprobaciones || []).map(a =>
-      `<div class="sol-step">Aprobador ${a.orden} ${decisionBadge(a.decision)}</div>`
+      `<div class="sol-step ${enTurno.has(a) ? 'sol-step-turno' : ''}">Aprobador ${a.orden} ${decisionBadge(a.decision)}${enTurno.has(a) ? ' ' + esperaBadge(esperaDesde(s, a)) : ''}</div>`
     ).join('');
     return `
       <div class="sol-card" data-sol="${s.id}">
@@ -72,6 +76,7 @@ export async function renderMisSolicitudes(container) {
         <div class="sol-foot">
           <span class="muted">Creada el ${fechaCorta(s.created_at)}</span>
           <span>
+            ${enTurno.size ? `<button class="link-btn btn-recordar" data-recordar="${s.id}" title="Le enviamos un correo al aprobador al que le toca decidir">🔔 Recordar al aprobador</button>` : ''}
             ${puedeEditar(s) ? `<button class="link-btn" data-editar="${s.id}">✏️ Editar</button>` : ''}
             <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>
           </span>
@@ -93,6 +98,9 @@ export async function renderMisSolicitudes(container) {
   });
   container.querySelectorAll('[data-editar]').forEach(btn => {
     btn.addEventListener('click', () => window.Router.go('nueva-solicitud', { editId: btn.dataset.editar }));
+  });
+  container.querySelectorAll('[data-recordar]').forEach(btn => {
+    btn.addEventListener('click', () => recordar(btn));
   });
 
   wireReclutamiento(container, reclutPendientes);

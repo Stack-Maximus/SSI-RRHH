@@ -316,6 +316,84 @@ export const Data = {
     }
   },
 
+  /**
+   * Recordatorio por correo a un aprobador que tiene solicitudes esperando
+   * su decisión (Edge Function `notificar`, type 'recordatorio_aprobador').
+   *   { aprobador_id }  -> RRHH / admin: un correo personalizado con TODAS
+   *                        las solicitudes que están en su turno.
+   *   { solicitud_id }  -> quien creó la solicitud (o RRHH / admin): avisa a
+   *                        quien le toca aprobar ESA solicitud.
+   * A diferencia de notificar(), esta sí se espera y lanza el error: la
+   * pantalla tiene que decir si se envió o por qué no (p. ej. ya se mandó
+   * uno hace poco -- el enfriamiento lo controla la función).
+   * Devuelve { ok, enviados, destinatarios: [nombres] }.
+   */
+  async recordarAprobador({ aprobador_id = null, solicitud_id = null } = {}) {
+    const { data, error } = await supabase.functions.invoke('Notificar', {
+      body: { type: 'recordatorio_aprobador', aprobador_id, solicitud_id }
+    });
+    if (error) {
+      let msg = error.message || 'No se pudo enviar el recordatorio.';
+      try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch { /* sin cuerpo JSON */ }
+      throw new Error(msg);
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  },
+
+  /**
+   * Recordatorios enviados en las últimas `horas` (tabla
+   * recordatorios_aprobacion, migración 0022). RLS: RRHH/admin ven todos;
+   * el resto, solo los que envió.
+   */
+  async recordatoriosRecientes(horas = 72) {
+    const desde = new Date(Date.now() - horas * 3600 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from('recordatorios_aprobacion')
+      .select('id, aprobador_id, solicitud_id, enviado_por, origen, created_at')
+      .gte('created_at', desde)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  /** Solicitudes todavía pendientes de aprobación (RRHH/admin), con sus aprobaciones */
+  async solicitudesPendientes() {
+    const { data: sols, error } = await supabase
+      .from('solicitudes').select(SOL_FIELDS + ', solicitante_id').eq('estado', 'pendiente')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    const aprs = await this.aprobacionesDe((sols || []).map(s => s.id));
+    const byId = new Map();
+    aprs.forEach(a => { if (!byId.has(a.solicitud_id)) byId.set(a.solicitud_id, []); byId.get(a.solicitud_id).push(a); });
+    return (sols || []).map(s => ({ ...s, aprobaciones: (byId.get(s.id) || []).sort((a, b) => a.orden - b.orden) }));
+  },
+
+  /**
+   * Sube el documento de respaldo de una solicitud (hoy: la carta de
+   * renuncia de una Desvinculación) al bucket privado 'solicitud-adjuntos'
+   * (migración 0022). Va en una carpeta con el id del usuario -- la política
+   * de Storage solo deja subir ahí, y el trigger de la base exige que la
+   * solicitud apunte a un archivo de la carpeta de quien la creó.
+   * Devuelve lo que se guarda en detalle.adjunto.
+   */
+  async subirAdjuntoSolicitud(file, userId) {
+    const safeName = file.name.replace(/[^\w.\-]+/g, '_').slice(-120);
+    const path = `${userId}/${crypto.randomUUID()}_${safeName}`;
+    const up = await supabase.storage.from('solicitud-adjuntos')
+      .upload(path, file, { upsert: false, contentType: file.type || undefined });
+    if (up.error) throw new Error('No se pudo subir el documento: ' + up.error.message);
+    return { path, nombre: file.name, tipo_mime: file.type || null, bytes: file.size };
+  },
+
+  /** URL firmada (5 min) para ver/descargar el adjunto de una solicitud */
+  async urlAdjuntoSolicitud(path, expiresIn = 300) {
+    const { data, error } = await supabase.storage
+      .from('solicitud-adjuntos').createSignedUrl(path, expiresIn);
+    if (error) throw error;
+    return data.signedUrl;
+  },
+
   /** Descarga el comprobante en PDF (con el encabezado Metalium y Código/Folio) de una solicitud */
   async descargarComprobantePdf(solicitudId) {
     await descargarPdfDeFuncion('comprobante-pdf', { solicitud_id: solicitudId }, 'comprobante.pdf');

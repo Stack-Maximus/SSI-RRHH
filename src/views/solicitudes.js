@@ -12,6 +12,7 @@ import { TIPO_SOLICITUD_META, MAESTRO_SOLICITUDES_CODIGO, DOCUMENTO_CODIGOS, TIP
 import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
 import { state } from '../core/state.js';
 import { renderComprobante } from './comprobante.js';
+import { aprobacionesEnTurno, esperaDesde, esperaBadge, recordar } from '../ui/aprobacion-turno.js';
 import { nuevoLibroSgc, hojaSgc, descargarLibroSgc } from '../ui/xlsx-sgc.js';
 import { documentoMaestro, fechaHora, duracion } from '../../supabase/functions/_shared/sgc-documentos.js';
 import { TIPO_LABELS } from '../../supabase/functions/_shared/solicitud-detalle.ts';
@@ -119,7 +120,9 @@ function card(s) {
   const solicitante = _perfiles.get(s.solicitante_id)?.nombre || '—';
   const aprob = (s.aprobaciones || []).filter(a => a.decision === 'aprobado').length;
   const total = (s.aprobaciones || []).length;
-  const steps = (s.aprobaciones || []).map(a => `<div class="sol-step">Aprobador ${a.orden} ${decisionBadge(a.decision)}</div>`).join('');
+  const enTurno = new Set(aprobacionesEnTurno(s));
+  const steps = (s.aprobaciones || []).map(a =>
+    `<div class="sol-step ${enTurno.has(a) ? 'sol-step-turno' : ''}">Aprobador ${a.orden} ${decisionBadge(a.decision)}${enTurno.has(a) ? ' ' + esperaBadge(esperaDesde(s, a)) : ''}</div>`).join('');
   return `
     <div class="sol-card" data-sol="${s.id}">
       <div class="sol-card-top">
@@ -134,6 +137,7 @@ function card(s) {
       <div class="sol-expand" hidden>
         ${detalleHtml(s)}
         <div class="sol-steps" style="margin-top:10px;">${steps || '<span class="muted">Sin aprobadores</span>'}</div>
+        ${enTurno.size ? `<button class="link-btn btn-recordar" data-recordar="${s.id}" title="Correo personalizado al aprobador al que le toca decidir">🔔 Recordar al aprobador</button>` : ''}
         ${s.motivo ? `<div class="sol-motivo">"${escapeHtml(s.motivo)}"</div>` : ''}
         <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>
         ${accionesRRHH(s)}
@@ -357,6 +361,10 @@ function wireDetalles(backView, root = document) {
  * como procesado). root acota el querySelectorAll a una sola tarjeta
  * recién reemplazada (ver reRenderCard) o a todo el documento (grilla completa). */
 function wireAcciones(root = document) {
+  root.querySelectorAll('[data-recordar]').forEach(btn => {
+    btn.addEventListener('click', () => recordar(btn));
+  });
+
   root.querySelectorAll('input[type="file"][data-subir-traslado]').forEach(inp => {
     inp.addEventListener('change', async () => {
       const file = inp.files?.[0];

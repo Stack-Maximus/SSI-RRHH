@@ -1,5 +1,5 @@
 // =====================================================================
-// Helpers compartidos para formatear una solicitud (los 6 tipos) en las
+// Helpers compartidos para formatear una solicitud (todos los tipos) en las
 // Edge Functions que generan PDF/correo (notificar, comprobante-pdf,
 // maestro-pdf). Espejo, en Deno, de src/ui/solicitud-format.js y
 // src/config.js del frontend -- se duplica porque cada Edge Function se
@@ -15,6 +15,7 @@ export const TIPO_LABELS: Record<string, string> = {
   aumento_sueldo: 'Aumento de sueldo',
   bono: 'Bono',
   cambio_cargo: 'Cambio de cargo',
+  cambio_turno: 'Cambio de turno',
   renovacion: 'Renovación',
   desvinculacion: 'Desvinculación',
 };
@@ -31,6 +32,7 @@ export const DOCUMENTO_CODIGOS: Record<string, { codigo: string; folioPrefijo: s
   aumento_sueldo: { codigo: 'RRH-FOR-VAR-001', folioPrefijo: 'RRH-VAR-' },
   bono:           { codigo: 'RRH-FOR-VAR-002', folioPrefijo: 'RRH-BON-' },
   cambio_cargo:   { codigo: 'RRH-FOR-VAR-003', folioPrefijo: 'RRH-CAR-' },
+  cambio_turno:   { codigo: 'RRH-FOR-VAR-005', folioPrefijo: 'RRH-TUR-' }, // provisorio
   renovacion:     { codigo: 'RRH-FOR-CON-007', folioPrefijo: 'RRH-REN-' },
   desvinculacion: { codigo: 'RRH-FOR-VAR-004', folioPrefijo: 'RRH-DES-' },
 };
@@ -92,6 +94,9 @@ export function detalleLineas(sol: any): [string, string][] {
         ['Fecha efectiva', d.fecha_efectiva], ['Motivo', d.motivo],
       ];
       break;
+    case 'cambio_turno':
+      pares = [['Turno nuevo', d.turno_nuevo], ['Motivo', d.motivo]];
+      break;
     case 'renovacion':
       pares = d.tipo_renovacion
         ? [
@@ -114,6 +119,7 @@ export function detalleLineas(sol: any): [string, string][] {
       pares = [
         ['Causal', d.causal],
         ['Fecha de desvinculación', d.fecha_desvinculacion],
+        ['Documento adjunto', d.adjunto?.nombre || (d.adjunto?.path ? 'Documento adjunto' : null)],
         ['Observaciones', d.observaciones],
       ];
       break;

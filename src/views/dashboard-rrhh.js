@@ -1,6 +1,6 @@
 /**
  * Vista "SLA Contratación" (RRHH / admin) · mide cuánto se demora RRHH en
- * cerrar su parte de CUALQUIER solicitud (los 6 tipos), desde que la
+ * cerrar su parte de CUALQUIER solicitud (todos los tipos), desde que la
  * solicitud queda totalmente aprobada hasta que RRHH cierra su trámite:
  *
  *   - ingreso: se sube el Contrato de Trabajo de cada contratación (puede
@@ -10,10 +10,19 @@
  *     han arrancado).
  *   - traslado: se completan los 3 documentos requeridos (Contrato de
  *     Trabajo, Anexo de Contrato, Cédula) para que Prevención homologue.
- *   - aumento de sueldo / bono / cambio de cargo / renovación: RRHH marca
- *     la solicitud como procesada (no tienen documento propio).
+ *   - aumento de sueldo / bono / cambio de cargo / cambio de turno /
+ *     renovación / desvinculación: RRHH marca la solicitud como procesada
+ *     (no tienen documento propio).
  *
  * Meta: 3 días hábiles por proceso (ver src/utils/dias-habiles.js).
+ *
+ * Reclutamiento y selección (oct. 2026): tiene su propia meta, 5 días
+ * hábiles por tanda para enviar candidatos, que se reinicia con cada
+ * rechazo total (ver ui/reclutamiento-sla.js) -- va en una tabla aparte.
+ * Por eso, en ingreso, una contratación que salió de un reclutamiento mide
+ * los 3 días del contrato desde que el solicitante ELIGIÓ al candidato (no
+ * desde la aprobación), y las vacantes con un reclutamiento en curso no
+ * cuentan como "sin iniciar".
  */
 
 import { Data } from '../db/data.js';
@@ -24,6 +33,7 @@ import { diasHabilesEntre } from '../utils/dias-habiles.js';
 import { pct, barras, slaBadge, prioridadFila, fechaAprobacionCompleta, agregarPorClave } from '../ui/sla-format.js';
 import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
 import { TIPOS_SOLICITUD_SIN_DOCUMENTO, DIAS_HABILES_PROCESO_RRHH } from '../config.js';
+import { ciclosReclutamiento, resumenReclutamiento, SLA_RECLUTAMIENTO } from '../ui/reclutamiento-sla.js';
 
 // Mismo valor que el aviso "hasta 3 días hábiles" de Traslado / Cambio de cargo.
 const SLA_DIAS = DIAS_HABILES_PROCESO_RRHH;
@@ -34,7 +44,7 @@ const SIN_INICIAR = '— (sin iniciar)';
 export async function renderDashboardRRHH(container) {
   container.innerHTML = '<div class="view-loading">Calculando tiempos de RRHH...</div>';
 
-  let sols, contrataciones, centros, checklist, fechasContrato, docsTraslado;
+  let sols, contrataciones, centros, checklist, fechasContrato, docsTraslado, reclutMap, candMap;
   try {
     [sols, contrataciones, centros, checklist] = await Promise.all([
       Data.solicitudesAprobadasPorTipo(TODOS_LOS_TIPOS),
@@ -43,10 +53,13 @@ export async function renderDashboardRRHH(container) {
       Data.checklistDocumentos()
     ]);
     const trasladoIds = sols.filter(s => s.tipo === 'traslado').map(s => s.id);
-    [fechasContrato, docsTraslado] = await Promise.all([
+    const ingresoIds = sols.filter(s => s.tipo === 'ingreso').map(s => s.id);
+    [fechasContrato, docsTraslado, reclutMap] = await Promise.all([
       Data.fechasContratoSubido(contrataciones.map(c => c.id)),
-      Data.documentosTrasladoPorSolicitud(trasladoIds)
+      Data.documentosTrasladoPorSolicitud(trasladoIds),
+      Data.reclutamientosPorSolicitud(ingresoIds)
     ]);
+    candMap = await Data.candidatosDeReclutamiento([...reclutMap.values()].flat().map(r => r.id));
   } catch (e) {
     console.error('[dashboard-rrhh]', e);
     Toast.error('Error', 'No se pudieron calcular los tiempos de RRHH.');
@@ -77,16 +90,23 @@ export async function renderDashboardRRHH(container) {
     const cantidad = s.detalle?.cantidad || 1;
     const propias = contratMap.get(s.id) || [];
 
+    const reclutamientos = reclutMap.get(s.id) || [];
     propias.forEach(c => {
       const fin = fechasContrato.get(c.id) || null;
       if (c.creada_por) responsableIds.add(c.creada_por);
+      // Salió de un reclutamiento: el plazo del contrato corre desde que el
+      // solicitante eligió al candidato (antes corría el de reclutamiento).
+      const desdeEleccion = reclutamientos.some(r => r.contratacion_id === c.id) && c.created_at;
       filas.push({
-        tipo: 'ingreso', titulo: c.nombre_candidato, centro, inicio,
+        tipo: 'ingreso', titulo: c.nombre_candidato, centro, inicio: desdeEleccion || inicio,
         fin, finalizado: !!fin, iniciado: true, responsableId: c.creada_por || null
       });
     });
 
-    const faltan = Math.max(0, cantidad - propias.length);
+    // Vacantes con un reclutamiento todavía sin candidato elegido: se miden
+    // en la tabla de reclutamiento, no como "sin iniciar".
+    const reclAbiertos = reclutamientos.filter(r => r.estado !== 'candidato_elegido').length;
+    const faltan = Math.max(0, cantidad - propias.length - reclAbiertos);
     for (let i = 0; i < faltan; i++) {
       filas.push({
         tipo: 'ingreso', titulo: `${s.detalle?.cargo || 'Cargo'} (vacante sin iniciar)`, centro, inicio,
@@ -132,6 +152,26 @@ export async function renderDashboardRRHH(container) {
     </div>`;
     return;
   }
+
+  // ---- Reclutamiento y selección: 1 fila por ciclo (tanda) de búsqueda ----
+  const solIngresoMap = new Map(solPorTipo.get('ingreso').map(s => [s.id, s]));
+  const filasRecl = [];
+  [...reclutMap.values()].flat().forEach(r => {
+    const s = solIngresoMap.get(r.solicitud_id);
+    const cands = candMap.get(r.id) || [];
+    const res = resumenReclutamiento(r, cands, ahora);
+    ciclosReclutamiento(r, cands, ahora).forEach(c => {
+      if (r.creado_por) responsableIds.add(r.creado_por);
+      filasRecl.push({
+        ...c,
+        folio: s?.folio || s?.codigo || '—',
+        cargo: s?.detalle?.cargo || '—',
+        centro: centrosMap.get(s?.centro_origen_id)?.nombre || '—',
+        etapa: c.finalizado ? `Tanda ${c.tanda} enviada` : res.etapa,
+        responsableId: r.creado_por || null
+      });
+    });
+  });
 
   const perfiles = await Data.perfilesPorId([...responsableIds]).catch(() => new Map());
   filas.forEach(f => {
@@ -179,7 +219,7 @@ export async function renderDashboardRRHH(container) {
 
   container.innerHTML = `
     <div class="kpi-grid">
-      <div class="kpi-card"><div class="kpi-label">Solicitudes</div><div class="kpi-value">${filas.length}</div><div class="kpi-meta">6 tipos, ya aprobadas</div></div>
+      <div class="kpi-card"><div class="kpi-label">Solicitudes</div><div class="kpi-value">${filas.length}</div><div class="kpi-meta">todos los tipos, ya aprobadas</div></div>
       <div class="kpi-card"><div class="kpi-label">En curso</div><div class="kpi-value">${enCurso.length}</div></div>
       <div class="kpi-card"><div class="kpi-label">Atrasadas</div><div class="kpi-value">${atrasadas.length}</div><div class="kpi-meta">más de ${SLA_DIAS} días hábiles</div></div>
       <div class="kpi-card"><div class="kpi-label">Cumplimiento SLA</div><div class="kpi-value">${finalizadas.length ? tasaCumplimiento + '%' : '—'}</div><div class="kpi-meta">sobre ${finalizadas.length} finalizada(s)</div></div>
@@ -193,7 +233,7 @@ export async function renderDashboardRRHH(container) {
       </div>
       <div class="card">
         <h3>¿Qué se mide?</h3>
-        <p class="hint">Desde que la solicitud queda totalmente aprobada hasta que RRHH cierra su parte: en <b>ingreso</b> al subir el Contrato de Trabajo, en <b>traslado</b> al completar Contrato + Anexo de Contrato + Cédula, y en aumento de sueldo / bono / cambio de cargo / renovación al marcarla como procesada. Meta: máximo ${SLA_DIAS} días hábiles (no cuenta fines de semana ni feriados de Chile).</p>
+        <p class="hint">Desde que la solicitud queda totalmente aprobada hasta que RRHH cierra su parte: en <b>ingreso</b> al subir el Contrato de Trabajo (si el candidato salió de un reclutamiento, desde que el solicitante lo eligió), en <b>traslado</b> al completar Contrato + Anexo de Contrato + Cédula, y en el resto de los tipos al marcarla como procesada. Meta: máximo ${SLA_DIAS} días hábiles (no cuenta fines de semana ni feriados de Chile).</p>
       </div>
     </div>
 
@@ -218,6 +258,8 @@ export async function renderDashboardRRHH(container) {
       </div>
     </div>
 
+    ${tablaReclutamiento(filasRecl, perfiles)}
+
     <div class="card">
       <h3>Detalle por solicitud</h3>
       <div class="table-wrap">
@@ -232,6 +274,49 @@ export async function renderDashboardRRHH(container) {
               <td>${fechaCorta(f.inicio)}</td>
               <td>${estadoTexto(f)}</td>
               <td>${slaBadge(f.dias, f.finalizado, SLA_DIAS)}</td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+/** Tabla de ciclos de Reclutamiento y selección (meta: SLA_RECLUTAMIENTO días hábiles por tanda). */
+function tablaReclutamiento(filas, perfiles) {
+  if (!filas.length) return '';
+  const enCurso = filas.filter(f => !f.finalizado);
+  const atrasados = enCurso.filter(f => f.dias > SLA_RECLUTAMIENTO);
+  const cerrados = filas.filter(f => f.finalizado);
+  const cumplidos = cerrados.filter(f => f.dias <= SLA_RECLUTAMIENTO);
+  const promedio = cerrados.length
+    ? Math.round((cerrados.reduce((a, f) => a + f.dias, 0) / cerrados.length) * 10) / 10
+    : null;
+  const ordenadas = [...filas].sort((a, b) => {
+    const pa = prioridadFila(a, SLA_RECLUTAMIENTO), pb = prioridadFila(b, SLA_RECLUTAMIENTO);
+    return pa !== pb ? pa - pb : b.dias - a.dias;
+  });
+  return `
+    <div class="card">
+      <h3>Reclutamiento y selección <span class="muted">· ${filas.length} tanda(s)</span></h3>
+      <p class="hint">Desde que RRHH crea el proceso (o desde que el solicitante rechaza a todos los candidatos de una tanda) hasta que RRHH envía la tanda siguiente. Meta: máximo ${SLA_RECLUTAMIENTO} días hábiles por tanda; el plazo se reinicia con cada rechazo total. Mientras el solicitante revisa candidatos, el reloj de RRHH no corre.</p>
+      <div class="kpi-grid">
+        <div class="kpi-card"><div class="kpi-label">Buscando ahora</div><div class="kpi-value">${enCurso.length}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Atrasadas</div><div class="kpi-value">${atrasados.length}</div><div class="kpi-meta">más de ${SLA_RECLUTAMIENTO} días hábiles</div></div>
+        <div class="kpi-card"><div class="kpi-label">Cumplimiento</div><div class="kpi-value">${cerrados.length ? pct(cumplidos.length, cerrados.length) + '%' : '—'}</div><div class="kpi-meta">sobre ${cerrados.length} tanda(s) enviada(s)</div></div>
+        <div class="kpi-card"><div class="kpi-label">Promedio días hábiles</div><div class="kpi-value">${promedio != null ? promedio : '—'}</div><div class="kpi-meta">meta: ${SLA_RECLUTAMIENTO} días hábiles</div></div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Solicitud</th><th>Cargo</th><th>Centro de costo</th><th>Tanda</th><th>Responsable</th><th>Inicio</th><th>Estado</th><th>SLA</th></tr></thead>
+          <tbody>${ordenadas.map(f => `
+            <tr>
+              <td>${escapeHtml(f.folio)}</td>
+              <td>${escapeHtml(f.cargo)}</td>
+              <td>${escapeHtml(f.centro)}</td>
+              <td>${f.tanda}${f.tanda > 1 ? ' <span class="muted">(reinicio)</span>' : ''}</td>
+              <td>${escapeHtml(f.responsableId ? (perfiles.get(f.responsableId)?.nombre || '—') : '—')}</td>
+              <td>${fechaCorta(f.inicio)}</td>
+              <td>${escapeHtml(f.etapa)}</td>
+              <td>${slaBadge(f.dias, f.finalizado, SLA_RECLUTAMIENTO)}</td>
             </tr>`).join('')}</tbody>
         </table>
       </div>

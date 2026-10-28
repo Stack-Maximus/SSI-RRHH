@@ -1779,3 +1779,208 @@ No lleva el pie como imagen bajo la tabla, para que no tape las filas que se agr
    `_shared/`, que cambió). Mismo procedimiento de siempre, ver la sección 1.
 3. Haz commit y push del repo a `main`; Vercel publica solo. No hay dependencias ni variables `.env` nuevas
    (las fuentes van en `public/fonts/`).
+
+## 18. Scripts para vaciar solicitudes y trabajadores (oct. 2026)
+
+En `supabase/mantencion/` (no son migraciones: se corren a mano en el SQL Editor, en este orden):
+
+1. `01_diagnostico_vaciado.sql` -- solo lectura. Cuenta lo que se va a borrar, lista toda tabla que apunta a
+   solicitudes/trabajadores (marca "⚠ BLOQUEA" si hay una de otro módulo que impediría el vaciado), los
+   triggers de borrado, los archivos en Storage y la numeración actual.
+2. `02_vaciar_solicitudes_y_trabajadores.sql` -- borra solicitudes (7 tipos) con sus aprobaciones, documentos
+   de traslado, contrataciones/homologación SST, reclutamientos y candidatos, y el maestro de trabajadores.
+   Todo o nada; exige cambiar `'NO'` por `'VACIAR'` en la línea de confirmación. No toca usuarios, centros de
+   costo, cargos, checklist ni otros módulos.
+3. `03_reiniciar_numeracion.sql` -- opcional: folios y N° de solicitud vuelven a 1 (solo con solicitudes
+   vacías). No correrlo si ya hay comprobantes con folio emitidos de verdad: se repetirían.
+
+Los archivos de los buckets `traslado-documentos`, `contratacion-documentos` y `reclutamiento-cv` se vacían
+desde el Dashboard (Storage -> bucket -> "Empty bucket"), sin borrar el bucket. Probados en un Postgres 16
+local con un esquema que imita el real (incluido el caso de una tabla de otro módulo que bloquea: se revierte
+todo).
+
+## 19. Instructivo de uso único, todos los módulos (oct. 2026)
+
+Un solo instructivo en PDF con el diseño del SGC (mismo encabezado, barras de sección, fichas y pie que los
+comprobantes) que cubre **todos los módulos** de la app, incluidos los del Administrador:
+`docs/instructivos/Instructivo_SSI-RRHH-SST.pdf` · código **RRH-INS-SSI-001**, revisión 00, 26 páginas.
+Nombre del sistema en el documento: **Solicitud de Servicio Interno Recursos Humanos - Homologación
+(SSI-RRHH-SST)** (ficha "Sistema"; el encabezado y el pie dicen "Instructivo de uso SSI-RRHH-SST").
+
+Reemplaza a los cinco instructivos por rol que se entregaron antes (RRH-INS-001 a 005: Solicitante,
+Supervisor, Aprobador, RRHH y Prevencionista). Esos PDF se pueden borrar de `docs/instructivos/`.
+
+Estructura (29 secciones, con índice y N° de página):
+
+| Bloque | Secciones |
+|---|---|
+| General (todos) | Identificación · Roles del sistema (rol, quién lo tiene, módulos de su menú) · Índice · Ingresar al sistema · La pantalla principal · Cómo avanza una solicitud |
+| Solicitante / Supervisor | Nueva solicitud · Solicitudes sobre un trabajador · Mis solicitudes: seguir y corregir · Elegir un candidato · El comprobante |
+| Aprobador | Bandeja de aprobación (incluye quién aprueba cada tipo) · Aprobar o rechazar |
+| RRHH | Solicitudes e Historial · Cerrar traslados y cambios · Contratación de un ingreso · Expediente de la contratación |
+| Prevencionista | Homologación SST · Autorizar el ingreso a obra · Rechazar una homologación |
+| Indicadores | Indicadores de plazo (SLA Contratación y SLA Homologación) · Dashboard |
+| Administrador | Usuarios (invitar, roles, Gerente Op./Prev., activo) · Centros de costo · Cargos (incl. importar planilla) · Trabajadores (plantilla, importar con vista previa, edición, perfil) · Checklist de documentos |
+| Cierre (todos) | Preguntas frecuentes · Correos del sistema (cuándo llega, asunto y quién lo recibe; incluye la invitación y el aviso de contratos por vencer) |
+
+Cada sección de módulo trae arriba las etiquetas **"Lo usan"** con los roles que la ven, y el índice repite esa
+columna, así cada persona encuentra lo suyo sin leer todo. Las capturas son **reales de la app** (Playwright
+sobre las vistas reales con datos de prueba ficticios). Todo el texto se revisó contra el código (botones,
+campos obligatorios, quién aprueba cada tipo, plazos 3 días hábiles RRHH / 9 + 3 por rechazo Prevención,
+correos de `notificar`, `invitar-usuario` y `vencimientos-contrato`).
+
+**Código y nombre:** `RRH-INS-SSI-001` y el nombre del sistema los definió Maximiliano (oct. 2026). Se cambian
+en `docs/instructivos/fuente/contenido.js` (constantes `COD` y `SISTEMA`).
+
+Ojo: la app misma todavía dice "SSI-RRHH · Solicitudes de Ingreso y Traslado" (pantallas de ingreso, recuperar
+y nueva contraseña) y "Sistema de Solicitudes de Ingreso y Traslado" (Inicio); por eso la captura del login del
+instructivo muestra ese nombre. Si se cambia en la app, hay que
+volver a tomar esa captura.
+
+**Para regenerarlo** (por ejemplo, si cambia una pantalla), en `docs/instructivos/fuente/` está el generador:
+`contenido.js` (todo el texto; `INSTRUCTIVOS.general` es el único que se genera, los textos por rol quedan
+como `INSTRUCTIVOS_POR_ROL`), `sgc-instructivo.js` (bloques del instructivo sobre el motor `sgc-layout.js`),
+`generar.ts` (PDF con Deno + pdf-lib, con índice en dos pasadas), `iconos-extra.js`, y para las capturas
+`capturas.cjs` / `capturas-admin.cjs` + `harness.html`/`harness.js`/`fixtures.js` (arnés que monta la app real
+con datos de prueba; las rutas absolutas son del entorno donde se generaron). Lo más simple es pedírmelo de
+nuevo indicando qué cambió.
+
+Observaciones encontradas al tomar las capturas:
+
+- La pantalla de **Inicio** todavía muestra la tarjeta "Estado del proyecto" con la hoja de ruta antigua (ya
+  anotado en el manual de usuario). El instructivo no la muestra.
+- **Fechas corridas un día:** `fechaCorta()` (`src/ui/solicitud-format.js`) arma `new Date('2026-11-30')`, que
+  JavaScript lee como medianoche UTC; en Chile eso es el día anterior. Afecta las fechas sin hora: el
+  **Vencimiento de contrato** del Perfil del trabajador (muestra 29-11-2026 para un 30-11-2026) y la columna
+  "Fecha término" de la vista previa al importar trabajadores. Arreglo de una línea: si el valor es
+  `AAAA-MM-DD`, construir la fecha local (`new Date(a, m - 1, d)`). Pendiente de aplicar.
+
+## 20. Plantillas en blanco, en Excel, de los documentos codificados (oct. 2026)
+
+En `docs/plantillas/` quedaron, **en blanco y en Excel**, los 8 documentos con código que emite el sistema,
+**con el mismo diseño y los mismos campos que el PDF que genera SSI-RRHH-SST** (diseño "Concept 3", sección 17):
+
+| Archivo | Código | Filas para aprobaciones |
+|---|---|---|
+| Comprobante de solicitud de Ingreso | RRH-FOR-CON-006 | 2 |
+| Comprobante de solicitud de Traslado | RRH-FOR-TRA-002 | 3 |
+| Comprobante de solicitud de Aumento de sueldo | RRH-FOR-VAR-001 | 1 |
+| Comprobante de solicitud de Cambio de cargo | RRH-FOR-VAR-003 | 1 |
+| Comprobante de solicitud de Cambio de turno | RRH-FOR-VAR-005 (provisorio) | 1 |
+| Comprobante de solicitud de Renovación | RRH-FOR-CON-007 | 1 |
+| Comprobante de solicitud de Desvinculación | RRH-FOR-VAR-004 (provisorio) | 1 |
+| Maestro de solicitudes | RRH-FOR-SOL-001 | 20 filas |
+
+Cómo están hechas (mismo criterio que los Excel de ejemplo del SGC):
+
+- **Las piezas gráficas son imágenes dibujadas con el mismo motor del sistema** (`sgc-layout.js`): encabezado
+  (logo, banda azul, tarjeta Código/Fecha/Revisión), barras de sección, íconos de las fichas y de la tabla, y la
+  línea del pie -- SIN los textos variables.
+- **Encima van cuadros de texto editables, vinculados a celdas**: título del documento, código, fecha y revisión
+  del encabezado (se toman de las fichas de "Identificación del registro"), y número y nombre de cada sección.
+- **Las fichas y la tabla de aprobaciones son celdas**, con la geometría del PDF (etiqueta azul arriba, valor
+  abajo, ícono a la izquierda; tabla con cabecera en degradado y filas cebra). Fuente Arial.
+- Campos de "Detalle del registro": exactamente los que muestra hoy el comprobante de cada tipo (Traslado ya sin
+  Turno; Desvinculación con "Documento adjunto"; en Renovación van juntos Fecha de culminación e Hito de la obra).
+- A4 vertical, ajustado al ancho; el maestro repite la fila de títulos en cada hoja y el pie dice "Página X de Y".
+- No se incluyó Bono (RRH-FOR-VAR-002): el tipo ya no se puede crear.
+- Generador en `docs/plantillas/fuente/`: `assets.cjs` + `assets-sgc.js`/`assets.html` (dibujan las imágenes con
+  el motor del sistema, en el arnés de Vite) y `generar.py` (Python + openpyxl; los cuadros de texto se agregan al
+  XML del dibujo, porque openpyxl no los escribe). `node assets.cjs <tipo> 0.6` y luego `python3 generar.py <tipo>`.
+- Verificado con LibreOffice (cada comprobante en 1 página, el maestro en 2). No hay Excel en este entorno:
+  conviene abrirlos una vez en el PC.
+
+## 21. Modal de Nueva solicitud, Cambio de turno, adjunto en Renuncia, recordatorios y SLA de reclutamiento (oct. 2026)
+
+Pedido: abrir el formulario en un modal; botón al sistema en los correos; recordatorio personalizado a los
+aprobadores; adjunto obligatorio en Renuncia voluntaria; causal Ausentismo; nuevo tipo Cambio de turno; quitar
+Turno de Traslado; plazo de 3 días hábiles en todas las solicitudes (con fechas bloqueadas); y plazo de 5 días
+hábiles de RRHH en Reclutamiento, que se reinicia con cada rechazo.
+
+**Ejecutar en Supabase, en este orden y por separado:** `0021_tipo_cambio_turno.sql` y después
+`0022_turno_adjuntos_recordatorios.sql` (0021 solo agrega el valor del enum; Postgres no deja usarlo en la misma
+transacción). Luego **volver a desplegar la Edge Function `notificar`** y, recomendado, configurar el secret
+`APP_URL` con la URL pública de Vercel (ver "Botón al sistema").
+
+### Nueva solicitud en un modal
+- La vista muestra tarjetas por tipo; al elegir una se abre un modal con sus campos y los botones Cancelar /
+  Crear solicitud (siempre visibles abajo). Al crear, se cierra el modal y se vuelve al Inicio, como antes.
+- El modal no se cierra con un clic afuera ni con Esc (se perdería lo escrito): solo con la X o Cancelar. El
+  Router cierra cualquier modal al cambiar de vista o cerrar sesión. Se importó `modal.css` en `main.css` (no
+  estaba) y `Modal.open()` ganó las opciones `descartable` y `onClose`.
+- **Editar** una solicitud sigue en la página (no en el modal): se llega desde Mis solicitudes con el tipo fijo.
+
+### Plazo de 3 días hábiles ("bloquear y avisar")
+- Todos los formularios muestran el aviso "una vez aprobada, RRHH tiene un plazo máximo de 3 días hábiles".
+- **Fecha de ingreso, Fecha de traslado y Fecha efectiva (Cambio de cargo)**: el calendario no deja elegir días
+  anteriores a hoy + 3 días hábiles (feriados de Chile incluidos, `sumarDiasHabiles()`), y si se escribe una a mano
+  se bloquea el envío con el mensaje.
+- **Fecha de desvinculación**: solo avisa (no bloquea), porque la fija la causal (p. ej. el último día de la carta
+  de renuncia). Si se quiere bloquear también, es cambiar `modo: 'avisar'` por `'bloquear'` en
+  `bodyDesvinculacion()`.
+- Es validación de pantalla (no de base de datos).
+
+### Traslado sin Turno
+- El formulario ya no pide Turno. Los traslados antiguos que lo tengan lo siguen mostrando y lo conservan al
+  editarse. Para cambiar el turno de alguien está el tipo nuevo.
+
+### Nuevo tipo: Cambio de turno
+- Campos: Trabajador, Turno nuevo (la misma lista de turnos de Ingreso, ahora `TURNOS` en `config.js`) y Motivo
+  (opcional). Aprueba solo el administrador de obra del centro del trabajador.
+- Folio `RRH-TUR-000001...`, formulario **RRH-FOR-VAR-005 (provisorio, confírmalo)**. Entra al cierre "Marcar
+  como procesado" de RRHH y al SLA de Contratación. Comprobante PDF, maestro y plantilla Excel incluidos.
+- El maestro de Trabajadores no tiene columna de turno, así que aprobarlo no cambia nada automáticamente.
+
+### Desvinculación: Ausentismo y carta de renuncia
+- Nueva causal "Ausentismo".
+- Con "Renuncia voluntaria" es **obligatorio adjuntar la carta de renuncia firmada** (PDF, imagen o Word, hasta
+  10 MB); con las demás causales el adjunto es opcional.
+- El archivo va al bucket privado `solicitud-adjuntos`, en una carpeta con el id de quien crea la solicitud. Un
+  trigger de la base revalida al crear o editar: Renuncia sin adjunto, adjunto de otra persona o archivo
+  inexistente -> error. Lo pueden abrir quien creó la solicitud, sus aprobadores, RRHH y admin (URL firmada de 5
+  minutos, botón 📎 en el detalle). En el comprobante aparece como "Documento adjunto".
+- Las desvinculaciones antiguas sin adjunto siguen su curso (el trigger solo revisa cuando cambia el detalle).
+
+### Botón al sistema en los correos
+- Todos los correos de `notificar` traen el botón ("Ir a mi bandeja", "Ver mis solicitudes", "Ir a
+  Contratación"...). El enlace lleva `?ir=<vista>`: después de iniciar sesión, la app abre directo esa vista si el
+  rol la tiene (si no, Inicio).
+- La URL sale del secret **`APP_URL`** (recomendado configurarlo). Si no está, se usa la dirección desde donde se
+  usó la app, solo si es `https://*.vercel.app`, `https://*.metalium.cl` o localhost. El aviso de vencimientos de
+  contrato (`vencimientos-contrato`, programado) solo muestra el botón con `APP_URL`.
+
+### Recordatorios a aprobadores
+- **RRHH y admin**: vista nueva **Aprobaciones pendientes** (menú) con una tarjeta por aprobador al que le toca
+  decidir, sus solicitudes y cuánto lleva esperando cada una (al día / atrasada >= 1 día hábil / crítica >= 3).
+  Botón "🔔 Enviar recordatorio": un correo con todas sus solicitudes en turno. También en Solicitudes, en la
+  solicitud pendiente.
+- **Solicitante**: en Mis solicitudes, botón "🔔 Recordar al aprobador" en sus solicitudes pendientes (avisa a quien
+  le toca esa solicitud). Los pasos de aprobación muestran el tiempo de espera del turno vigente.
+- El correo es personalizado: saluda al aprobador por su nombre, asunto y tono según la espera más larga
+  ("Urgente..." si es crítica), tabla con cada solicitud y su tiempo, botón a su bandeja, y quién lo pidió.
+- Para no saturar: el mismo recordatorio no se puede repetir antes de **4 horas** (lo controla la función y
+  responde con el mensaje de cuándo se puede; constante `RECORDATORIO_ENFRIAMIENTO_HORAS` en `config.js` y en
+  `notificar`). Cada envío queda en la tabla `recordatorios_aprobacion`.
+- La espera de un turno se cuenta desde la última decisión anterior (o la creación de la solicitud).
+
+### SLA de Reclutamiento y selección (5 días hábiles, se reinicia con cada rechazo)
+- RRHH tiene 5 días hábiles para enviar candidatos. Se mide por tanda: la 1.a desde que RRHH crea el proceso; cada
+  tanda siguiente, desde que el solicitante rechazó a todos los de la anterior. Mientras el solicitante revisa, el
+  reloj de RRHH no corre. Antes de crear el proceso, la vacante sigue contando como "sin iniciar" en el SLA de
+  Contratación (desde la aprobación).
+- Se ve en la tarjeta del proceso (Contratación) y en una tabla nueva en **SLA Contratación**.
+- En ingreso, si el candidato salió de un reclutamiento, los 3 días del contrato corren desde que el solicitante lo
+  eligió; las vacantes con un reclutamiento en curso ya no cuentan como "sin iniciar".
+
+### Otros
+- `fechaCorta()` mostraba un día menos en fechas sin hora ('2026-11-02' se leía como medianoche UTC): corregido.
+- Bandeja: el motivo se escapa antes de mostrarse (podía inyectar HTML).
+- `dias-habiles.js` ahora vive en `supabase/functions/_shared/` (lo usan la app y `notificar`);
+  `src/utils/dias-habiles.js` lo re-exporta.
+- Plantillas Excel regeneradas (Traslado sin Turno, Desvinculación con adjunto, Cambio de turno nuevo).
+- **Instructivo**: `docs/instructivos/Instructivo_SSI-RRHH-SST.pdf` todavía muestra el formulario anterior
+  (sin modal, Traslado con turno); falta actualizar sus capturas y agregar Cambio de turno, recordatorios y el SLA
+  de reclutamiento.
+- Probado con el arnés (Playwright), las migraciones 0021/0022 en un Postgres local (cambio de turno, folio, carta
+  obligatoria, adjunto ajeno/inexistente, visibilidad del adjunto, políticas de Storage, tabla de recordatorios) y
+  la lógica de recordatorios de `notificar` en Deno con datos simulados (permisos, enfriamiento, correo).

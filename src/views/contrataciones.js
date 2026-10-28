@@ -15,6 +15,8 @@ import {
   estadoReclutamientoBadge, decisionCandidatoBadge, nombreCandidatoRecl
 } from '../ui/contratacion-format.js';
 import { renderContratacionDetalle } from './contratacion-detalle.js';
+import { resumenReclutamiento, SLA_RECLUTAMIENTO } from '../ui/reclutamiento-sla.js';
+import { slaBadge } from '../ui/sla-format.js';
 
 const CANALES = [['recomendacion', 'Recomendación'], ['reclutamiento_seleccion', 'Reclutamiento y selección']];
 const TIPOS = [['administrativo', 'Administrativo'], ['operativo', 'Operativo']];
@@ -123,6 +125,17 @@ function reclCard(r, candidatos) {
       <div>${decisionCandidatoBadge(c.decision)}</div>
     </div>`).join('');
 
+  // Plazo de RRHH (5 días hábiles por tanda, se reinicia con cada rechazo
+  // total -- ver ui/reclutamiento-sla.js). Mientras el solicitante revisa,
+  // se muestra cómo quedó la última tanda enviada.
+  const sla = resumenReclutamiento(r, candidatos);
+  const slaHtml = sla.ultimo && r.estado !== 'candidato_elegido' ? `
+      <div class="recl-sla">
+        <span>⏱️ ${escapeHtml(sla.etapa)} · plazo de RRHH tanda ${sla.ultimo.tanda}:</span>
+        ${slaBadge(sla.ultimo.dias, sla.ultimo.finalizado, SLA_RECLUTAMIENTO)}
+        <span>meta ${SLA_RECLUTAMIENTO} días hábiles${sla.reinicios ? ` · reiniciado ${sla.reinicios} ${sla.reinicios === 1 ? 'vez' : 'veces'} por rechazo` : ''}</span>
+      </div>` : '';
+
   return `
     <div class="recl-card" data-recl="${r.id}">
       <div class="recl-card-top">
@@ -130,6 +143,7 @@ function reclCard(r, candidatos) {
         ${estadoReclutamientoBadge(r.estado)}
         <span class="muted">${tipoTrabajadorLabel(r.tipo_trabajador)}</span>
       </div>
+      ${slaHtml}
       ${rows ? `<div class="cand-list">${rows}</div>` : '<span class="muted">Todavía sin candidatos.</span>'}
       ${puedeAgregar ? `
         <button class="link-btn" data-agregar-cand="${r.id}">${candidatos.length === 0 ? '+ Agregar candidatos' : '+ Agregar otra tanda'}</button>

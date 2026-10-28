@@ -7,6 +7,7 @@ import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { tipoLabel, fechaCorta, resumen, detalleHtml } from '../ui/solicitud-format.js';
+import { escapeHtml } from '../ui/utils.js';
 import { renderComprobante } from './comprobante.js';
 
 export async function renderBandeja(container) {
@@ -45,7 +46,7 @@ export async function renderBandeja(container) {
         </div>
         <div class="sol-resumen">${resumen(s, centrosMap, trabMap)}</div>
         ${detalleHtml(s)}
-        ${s.motivo ? `<div class="sol-motivo">"${s.motivo}"</div>` : ''}
+        ${s.motivo ? `<div class="sol-motivo">"${escapeHtml(s.motivo)}"</div>` : ''}
         <div class="sol-foot">
           <span class="muted">Solicitada el ${fechaCorta(s.created_at)}</span>
           <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>

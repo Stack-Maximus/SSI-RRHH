@@ -125,3 +125,27 @@ tr.row-inactivo { opacity: .5; }
 
 /* Importador de trabajadores */
 .import-resumen { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+/* ---------- Recordatorios a aprobadores (oct. 2026) ---------- */
+.sol-step-turno { border-color: var(--accent); background: var(--accent-100); color: var(--text); }
+.btn-recordar { white-space: nowrap; }
+
+/* Vista "Aprobaciones pendientes" (RRHH / admin) */
+.apr-pend-card { display: flex; flex-direction: column; gap: 14px; }
+.apr-pend-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.apr-pend-top h3 { margin: 0; }
+.apr-pend-top > div:first-child { flex: 1 1 220px; min-width: 0; }
+.apr-pend-resumen { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.apr-pend-accion { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: auto; }
+.apr-pend-ult { font-size: 12px; }
+@media (max-width: 600px) {
+  .apr-pend-accion { align-items: stretch; margin-left: 0; width: 100%; }
+}
+
+/* Plazo de reclutamiento (tarjeta de Contratación) */
+.recl-sla { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-m); }

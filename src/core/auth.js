@@ -10,6 +10,8 @@ import { supabase } from './supabase.js';
 import { state } from './state.js';
 import { Idle } from './idle.js';
 import { Toast, Confirm } from '../ui/toast.js';
+import { Modal } from '../ui/modal.js';
+import { ROLES } from '../config.js';
 import { renderLogin } from '../views/login.js';
 import { renderForgotPassword } from '../views/forgot-password.js';
 import { renderResetPassword } from '../views/reset-password.js';
@@ -84,9 +86,30 @@ export const Auth = {
     // Cierre automático por inactividad
     Idle.start(INACTIVIDAD_MIN, () => Auth.logoutInactividad());
 
-    // Monta la estructura permanente (sidebar + topbar) y navega a la vista inicial
+    // Monta la estructura permanente (sidebar + topbar) y navega a la vista
+    // inicial -- o a la que pide el enlace del correo (?ir=bandeja, etc.,
+    // ver boton() en supabase/functions/notificar), si el rol tiene acceso.
     window.Shell.render();
-    window.Router.go('inicio');
+    window.Router.go(Auth.vistaDelEnlace() || 'inicio');
+  },
+
+  /**
+   * Vista pedida por el enlace de un correo (?ir=<vista>), solo si existe en
+   * el menú del rol actual (si no, se ignora en silencio y se va a Inicio).
+   * Se consume una sola vez: se borra de la barra de direcciones.
+   */
+  vistaDelEnlace() {
+    let vista = null;
+    try {
+      const url = new URL(window.location.href);
+      vista = url.searchParams.get('ir');
+      if (vista) {
+        url.searchParams.delete('ir');
+        window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      }
+    } catch { /* URL inválida: se ignora */ }
+    const permitidas = ROLES[state.user?.role]?.menu || [];
+    return vista && permitidas.includes(vista) ? vista : null;
   },
 
   async checkSession() {
@@ -111,6 +134,7 @@ export const Auth = {
     });
     if (!ok) return;
     Idle.stop();
+    Modal.close();
     await supabase.auth.signOut();
     state.user = null;
     state.currentView = null;
@@ -120,6 +144,7 @@ export const Auth = {
   // Cierre disparado por inactividad (sin confirmación)
   async logoutInactividad() {
     Idle.stop();
+    Modal.close();
     state.user = null;          // antes del signOut, para no duplicar el render
     state.currentView = null;
     await supabase.auth.signOut();

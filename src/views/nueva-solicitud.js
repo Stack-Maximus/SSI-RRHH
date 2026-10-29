@@ -23,7 +23,10 @@
  * de turno; Desvinculación con causal "Ausentismo" y adjunto obligatorio en
  * "Renuncia voluntaria"; todos los formularios avisan el plazo de RRHH (3
  * días hábiles) y las fechas de ingreso / traslado / efectiva no se pueden
- * pedir antes de hoy + 3 días hábiles.
+ * pedir antes de hoy + 3 días hábiles. Además (29-oct-2026), la fecha de
+ * ingreso y la fecha efectiva del aumento de sueldo son obligatorias y solo
+ * pueden caer en el periodo vigente, que cierra el día 24 (DIA_CORTE_PERIODO):
+ * si con los 3 días hábiles ya no alcanza, pasa al mes siguiente, del 1 al 24.
  *
  * MODO EDICIÓN: cuando Router.go('nueva-solicitud', {editId}) trae un id
  * (ver mis-solicitudes.js), esta misma vista carga esa solicitud y reusa
@@ -46,9 +49,10 @@ import { Modal } from '../ui/modal.js';
 import { escapeHtml } from '../ui/utils.js';
 import {
   TIPOS_SOLICITUD_POR_ROL, TIPO_SOLICITUD_META, TIPOS_CONTRATO_INGRESO, CAUSALES_DESVINCULACION,
-  CAUSALES_CON_ADJUNTO, ADJUNTO_SOLICITUD, TURNOS, TIPO_RENOVACION_LABELS, DIAS_HABILES_PROCESO_RRHH
+  CAUSALES_CON_ADJUNTO, ADJUNTO_SOLICITUD, TURNOS, TIPO_RENOVACION_LABELS, DIAS_HABILES_PROCESO_RRHH,
+  DIA_CORTE_PERIODO, DIAS_HABILES_RECLUTAMIENTO
 } from '../config.js';
-import { sumarDiasHabiles, fechaLocalISO } from '../utils/dias-habiles.js';
+import { sumarDiasHabiles, fechaLocalISO, periodoConCorte } from '../utils/dias-habiles.js';
 
 let centros = [];
 let trabajadores = [];
@@ -64,6 +68,11 @@ let adjuntoPrevio = null;
 // efectiva: hoy + DIAS_HABILES_PROCESO_RRHH días hábiles ('YYYY-MM-DD',
 // hora local). Se recalcula cada vez que se abre la vista.
 let fechaMin = '';
+// Periodo vigente con corte el día DIA_CORTE_PERIODO ({ desde, hasta }), para
+// la fecha de ingreso y la fecha efectiva del aumento de sueldo: desde
+// fechaMin hasta el 24 de ese mes o, si fechaMin ya pasó el 24, del 1 al 24
+// del mes siguiente. Solo se pueden elegir fechas dentro de este periodo.
+let periodo = null;
 
 // TURNOS vive en config.js (lo comparten Ingreso y Cambio de turno). El
 // turno ya define el horario, por eso Ingreso no tiene un campo "Horario"
@@ -81,6 +90,36 @@ function fechaLarga(iso) {
   const [y, m, d] = String(iso).split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' }).replace(',', '');
 }
+
+/** Periodo vigente en palabras: "del martes 3 al martes 24 de noviembre". */
+function rangoPeriodo() {
+  const fecha = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
+  const dia = (x) => x.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric' }).replace(',', '');
+  const a = fecha(periodo.desde), b = fecha(periodo.hasta);
+  return `del ${dia(a)} al ${dia(b)} de ${b.toLocaleDateString('es-CL', { month: 'long' })}`;
+}
+
+/**
+ * Aviso del plazo de RRHH + corte del día 24 (Ingreso y Aumento de sueldo).
+ */
+const avisoPeriodo = (queCosa, campo) => `
+    <div class="form-section"><div class="form-info aviso-plazo">
+      ⏱️ Una vez aprobada la solicitud, RRHH tiene un plazo máximo de <b>${PLAZO} días hábiles</b> para procesar ${queCosa}, y cada periodo cierra el <b>día ${DIA_CORTE_PERIODO}</b>.
+      Por eso la ${campo} tiene que quedar en el periodo vigente: <b>${rangoPeriodo()}</b>.
+      Si ya no alcanza antes del ${DIA_CORTE_PERIODO}, pasa al periodo siguiente (del 1 al ${DIA_CORTE_PERIODO} del mes que viene).
+    </div></div>`;
+
+/**
+ * Aviso propio de Ingreso (29-oct-2026, a pedido): plazos de la contratación
+ * y del reclutamiento. Los mismos valores que mide "SLA Contratación".
+ */
+const avisoContratacion = () => `
+    <div class="form-section"><div class="form-info aviso-contratacion">
+      <b>👥 Plazos de la contratación</b><br>
+      El proceso de contratación es de <b>${PLAZO} días hábiles</b>. Si RRHH tiene que buscar candidatos
+      (Reclutamiento y selección), se suman <b>${DIAS_HABILES_RECLUTAMIENTO} días hábiles extra</b>, y ese plazo
+      se renueva cada vez que se rechazan todos los candidatos propuestos.
+    </div></div>`;
 
 /**
  * Aviso del plazo de RRHH (en TODOS los formularios, a pedido -- oct. 2026).
@@ -100,12 +139,33 @@ const avisoPlazo = (queCosa, campo = null) => `
  *  - modo 'avisar': deja cualquier fecha, pero si es anterior al mínimo
  *    muestra una advertencia (Desvinculación: la fecha la fija la causal,
  *    p. ej. el último día que indica la carta de renuncia).
+ *  - modo 'periodo': solo fechas del periodo vigente (min y max), corte el
+ *    día 24 (Ingreso y Aumento de sueldo). Se bloquea igual que 'bloquear'.
  */
 function campoFecha(name, label, valor, { requerido = false, modo = 'bloquear' } = {}) {
+  const limites = modo === 'bloquear' ? `min="${fechaMin}"`
+    : modo === 'periodo' ? `min="${periodo.desde}" max="${periodo.hasta}"` : '';
+  const ayuda = modo === 'periodo' ? `Periodo vigente: ${rangoPeriodo()} (corte el día ${DIA_CORTE_PERIODO})`
+    : modo === 'bloquear' ? `Desde el ${fechaLarga(fechaMin)} (${PLAZO} días hábiles)`
+    : `Ideal: desde el ${fechaLarga(fechaMin)} (${PLAZO} días hábiles)`;
   return `<div class="form-field"><label class="form-label">${label}${requerido ? ' <span class="req">*</span>' : ''}</label>
-        <input type="date" name="${name}" data-fecha-min="${modo}" ${modo === 'bloquear' ? `min="${fechaMin}"` : ''} ${requerido ? 'required' : ''} value="${valor || ''}">
-        <p class="form-hint">${modo === 'bloquear' ? `Desde el ${fechaLarga(fechaMin)}` : `Ideal: desde el ${fechaLarga(fechaMin)}`} (${PLAZO} días hábiles)</p>
+        <input type="date" name="${name}" data-fecha-min="${modo}" ${limites} ${requerido ? 'required' : ''} value="${valor || ''}">
+        <p class="form-hint">${ayuda}</p>
         <div class="fecha-aviso" hidden></div></div>`;
+}
+
+/** Mensaje si `valor` no cumple el modo del campo (o '' si está bien). */
+function problemaFecha(valor, modo) {
+  if (!valor) return '';
+  if (modo === 'periodo') {
+    return valor < periodo.desde || valor > periodo.hasta
+      ? `Elige una fecha del periodo vigente: ${rangoPeriodo()}. RRHH necesita hasta ${PLAZO} días hábiles y cada periodo cierra el día ${DIA_CORTE_PERIODO}.`
+      : '';
+  }
+  if (valor >= fechaMin) return '';
+  return modo === 'bloquear'
+    ? `RRHH necesita hasta ${PLAZO} días hábiles: elige una fecha desde el ${fechaLarga(fechaMin)}.`
+    : `Ojo: es antes de los ${PLAZO} días hábiles que RRHH puede necesitar para procesarla (${fechaLarga(fechaMin)}).`;
 }
 
 /** Revisa los campos de fecha con mínimo al cambiar (y al abrir, para las ediciones). */
@@ -113,15 +173,11 @@ function wireFechas(root) {
   root.querySelectorAll('input[data-fecha-min]').forEach(inp => {
     const aviso = inp.parentElement.querySelector('.fecha-aviso');
     const revisar = () => {
-      const antes = inp.value && inp.value < fechaMin;
-      const bloquea = inp.dataset.fechaMin === 'bloquear';
-      const msg = antes
-        ? (bloquea
-          ? `RRHH necesita hasta ${PLAZO} días hábiles: elige una fecha desde el ${fechaLarga(fechaMin)}.`
-          : `Ojo: es antes de los ${PLAZO} días hábiles que RRHH puede necesitar para procesarla (${fechaLarga(fechaMin)}).`)
-        : '';
-      inp.setCustomValidity(antes && bloquea ? msg : '');
-      aviso.hidden = !antes;
+      const modo = inp.dataset.fechaMin;
+      const msg = problemaFecha(inp.value, modo);
+      const bloquea = modo !== 'avisar';
+      inp.setCustomValidity(msg && bloquea ? msg : '');
+      aviso.hidden = !msg;
       aviso.className = 'fecha-aviso ' + (bloquea ? 'fecha-aviso-error' : 'fecha-aviso-warn');
       aviso.textContent = msg;
     };
@@ -135,6 +191,14 @@ function wireFechas(root) {
 function exigirFechaMin(valor, queFecha) {
   if (valor && valor < fechaMin) {
     throw `La ${queFecha} no puede ser antes del ${fechaLarga(fechaMin)}: RRHH necesita hasta ${PLAZO} días hábiles para procesar la solicitud.`;
+  }
+}
+
+/** Validación del periodo vigente (corte el día 24) en build*(): obligatoria y dentro del rango. */
+function exigirFechaPeriodo(valor, queFecha) {
+  if (!valor) throw `Indica la ${queFecha}.`;
+  if (problemaFecha(valor, 'periodo')) {
+    throw `La ${queFecha} tiene que estar en el periodo vigente: ${rangoPeriodo()} (RRHH necesita hasta ${PLAZO} días hábiles y cada periodo cierra el día ${DIA_CORTE_PERIODO}).`;
   }
 }
 
@@ -204,6 +268,7 @@ export async function renderNuevaSolicitud(container, params) {
   editando = null;
   adjuntoPrevio = null;
   fechaMin = fechaLocalISO(sumarDiasHabiles(new Date(), PLAZO));
+  periodo = periodoConCorte(fechaMin, DIA_CORTE_PERIODO);
   let solEditar = null;
 
   try {
@@ -273,7 +338,7 @@ function renderSelectorTipos(container) {
             <span class="tipo-card-ir" aria-hidden="true">→</span>
           </button>`;
         }).join('')}</div>
-        <div class="form-info">⏱️ Una vez aprobada, RRHH tiene un plazo máximo de <b>${PLAZO} días hábiles</b> para procesar cada solicitud. Por eso las fechas de ingreso, traslado o cambio se pueden pedir desde el <b>${fechaLarga(fechaMin)}</b>.</div>
+        <div class="form-info">⏱️ Una vez aprobada, RRHH tiene un plazo máximo de <b>${PLAZO} días hábiles</b> para procesar cada solicitud. Por eso las fechas de traslado o cambio se pueden pedir desde el <b>${fechaLarga(fechaMin)}</b>, y las de <b>ingreso y aumento de sueldo</b> tienen que quedar en el periodo vigente, que cierra el día ${DIA_CORTE_PERIODO}: <b>${rangoPeriodo()}</b>.</div>
       </div>
     </div>`;
 
@@ -383,7 +448,8 @@ function bodyIngreso(sol) {
   const centroId = sol ? sol.centro_origen_id : (state.user.centroCostoId || '');
   const nombreCentro = editando ? (centros.find(c => c.id === centroId)?.nombre || '(centro no disponible)') : null;
   return `
-    ${avisoPlazo('el ingreso', 'fecha de ingreso')}
+    ${avisoContratacion()}
+    ${avisoPeriodo('el ingreso', 'fecha de ingreso')}
     <div class="form-section"><div class="form-grid-2">
       <div class="form-field"><label class="form-label">Cargo <span class="req">*</span></label>
         <select name="cargo" required>${optsCargos(v.cargo || '')}</select></div>
@@ -413,7 +479,7 @@ function bodyIngreso(sol) {
     <div class="form-section"><div class="form-grid-2">
       <div class="form-field"><label class="form-label">Sueldo líquido pactado</label>
         <input type="number" name="sueldo_liquido" min="0" placeholder="Ej: 800000" value="${v.sueldo_liquido ?? ''}"></div>
-      ${campoFecha('fecha_ingreso', 'Fecha de ingreso a obra', v.fecha_ingreso)}
+      ${campoFecha('fecha_ingreso', 'Fecha de ingreso a obra', v.fecha_ingreso, { requerido: true, modo: 'periodo' })}
     </div></div>
     <div class="form-section"><div class="form-field"><label class="form-label">Motivo / observaciones</label>
       <textarea name="motivo" placeholder="Opcional">${escapeHtml(sol?.motivo || '')}</textarea></div></div>
@@ -488,19 +554,24 @@ function wireTraslado() {
 
 /* ---------------- AUMENTO DE SUELDO ---------------- */
 // Solo el monto del aumento (oct. 2026): ya no se muestra ni se pide el
-// sueldo actual, el nuevo sueldo ni la fecha efectiva. Al editar una
-// solicitud antigua (sueldo_actual -> sueldo_nuevo) se precarga la diferencia.
+// sueldo actual ni el nuevo sueldo. Al editar una solicitud antigua
+// (sueldo_actual -> sueldo_nuevo) se precarga la diferencia. La fecha
+// efectiva volvió a fines de oct. 2026, OBLIGATORIA y dentro del periodo
+// vigente (corte el día 24, igual que la fecha de ingreso).
 function bodyAumentoSueldo(sol) {
   const v = sol?.detalle || {};
   const montoPrevio = v.monto_aumento ??
     (v.sueldo_nuevo != null && v.sueldo_actual != null ? v.sueldo_nuevo - v.sueldo_actual : '');
   return `
-    ${avisoPlazo('el aumento de sueldo')}
+    ${avisoPeriodo('el aumento de sueldo', 'fecha efectiva del aumento')}
     ${selectTrabajador('cam-trab', sol?.trabajador_id || '', editando ? sol._trabajadorNombre : null)}
-    <div class="form-section"><div class="form-field">
-      <label class="form-label">Monto del aumento de sueldo ($) <span class="req">*</span></label>
-      <input type="number" name="monto_aumento" required min="1" step="1" placeholder="Ej: 50000" value="${montoPrevio}">
-      <p class="hint">¿En cuánto se quiere aumentar el sueldo? Escribe solo el monto del aumento, no el sueldo final.</p>
+    <div class="form-section"><div class="form-grid-2">
+      <div class="form-field">
+        <label class="form-label">Monto del aumento de sueldo ($) <span class="req">*</span></label>
+        <input type="number" name="monto_aumento" required min="1" step="1" placeholder="Ej: 50000" value="${montoPrevio}">
+        <p class="form-hint">¿En cuánto se quiere aumentar el sueldo? Escribe solo el monto del aumento, no el sueldo final.</p>
+      </div>
+      ${campoFecha('fecha_efectiva', 'Fecha efectiva del aumento', v.fecha_efectiva, { requerido: true, modo: 'periodo' })}
     </div></div>
     <div class="form-section"><div class="form-field">
       <label class="form-label">Motivo</label>
@@ -748,7 +819,7 @@ function buildIngreso(f) {
   if (!num(f.cantidad.value)) throw 'Indica la cantidad.';
   if (!f.centro_costo.value) throw 'Selecciona el centro de costo.';
   if (!f.colacion.value) throw 'Selecciona el horario de colación.';
-  exigirFechaMin(f.fecha_ingreso.value, 'fecha de ingreso');
+  exigirFechaPeriodo(f.fecha_ingreso.value, 'fecha de ingreso');
   return {
     tipo: 'ingreso',
     trabajador_id: null,
@@ -798,11 +869,13 @@ function buildAumentoSueldo(f) {
   if (!f.trabajador_id.value) throw 'Selecciona el trabajador.';
   const monto = num(f.monto_aumento.value);
   if (!monto || monto <= 0) throw 'Indica el monto del aumento (mayor a cero).';
+  exigirFechaPeriodo(f.fecha_efectiva.value, 'fecha efectiva del aumento');
   return {
     tipo: 'aumento_sueldo',
     trabajador_id: f.trabajador_id.value,
     detalle: {
       monto_aumento: monto,
+      fecha_efectiva: f.fecha_efectiva.value,
       motivo: txt(f.motivo.value)
     }
   };

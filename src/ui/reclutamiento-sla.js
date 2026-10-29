@@ -1,6 +1,6 @@
 /**
  * Plazo de RRHH en un proceso de Reclutamiento y selección (oct. 2026, a
- * pedido): RRHH tiene DIAS_HABILES_RECLUTAMIENTO (5) días hábiles para
+ * pedido): RRHH tiene DIAS_HABILES_RECLUTAMIENTO (6) días hábiles para
  * enviar candidatos, y ese plazo se REINICIA cada vez que el solicitante
  * rechaza a todos los candidatos de una tanda.
  *

@@ -48,6 +48,13 @@
 }
 
 /* Texto de ayuda chico bajo un campo o un título */
+/* Aviso de plazos de contratación (Ingreso): distinto del aviso azul de fechas */
+.form-info.aviso-contratacion {
+  background: #FFF7E0;
+  border-color: rgba(217, 119, 6, .40);
+  line-height: 1.5;
+}
+
 .form-hint {
   margin: 0;
   font-size: 12.5px;

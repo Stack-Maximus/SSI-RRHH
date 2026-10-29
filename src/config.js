@@ -176,10 +176,21 @@ export const TURNOS = [
 // de ingreso / traslado / efectiva no puede ser antes de hoy + este plazo.
 export const DIAS_HABILES_PROCESO_RRHH = 3;
 
+// Corte de periodo (oct. 2026, a pedido): la fecha de ingreso (Ingreso) y la
+// fecha efectiva del aumento (Aumento de sueldo) tienen que caer dentro del
+// periodo vigente, que cierra este día de cada mes. Si con los 3 días
+// hábiles de RRHH ya no alcanza a quedar antes del corte, el periodo pasa al
+// mes siguiente (del 1 al día de corte). Ver periodoConCorte() en
+// supabase/functions/_shared/dias-habiles.js.
+export const DIA_CORTE_PERIODO = 24;
+
 // Plazo máximo de RRHH para enviar candidatos en un proceso de
-// Reclutamiento y selección. Se cuenta por tanda: si el solicitante rechaza
-// a todos los candidatos, el plazo vuelve a empezar desde ese rechazo.
-export const DIAS_HABILES_RECLUTAMIENTO = 5;
+// Reclutamiento y selección: días hábiles EXTRA, que se suman a los 3 de la
+// contratación. Se cuenta por tanda: si el solicitante rechaza a todos los
+// candidatos, el plazo vuelve a empezar desde ese rechazo. (Era 5; pasó a 6
+// el 29-oct-2026, a pedido.) Debe coincidir con DIAS_HABILES_RECLUTAMIENTO
+// en supabase/functions/notificar/index.ts.
+export const DIAS_HABILES_RECLUTAMIENTO = 6;
 
 // Recordatorios a aprobadores (Edge Function notificar, 'recordatorio_aprobador'):
 // horas mínimas entre dos recordatorios iguales. Debe coincidir con

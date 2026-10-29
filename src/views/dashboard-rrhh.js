@@ -16,7 +16,7 @@
  *
  * Meta: 3 días hábiles por proceso (ver src/utils/dias-habiles.js).
  *
- * Reclutamiento y selección (oct. 2026): tiene su propia meta, 5 días
+ * Reclutamiento y selección (oct. 2026): tiene su propia meta, 6 días
  * hábiles por tanda para enviar candidatos, que se reinicia con cada
  * rechazo total (ver ui/reclutamiento-sla.js) -- va en una tabla aparte.
  * Por eso, en ingreso, una contratación que salió de un reclutamiento mide

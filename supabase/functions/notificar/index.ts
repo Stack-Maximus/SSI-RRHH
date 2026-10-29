@@ -84,6 +84,8 @@ const ESPERA_DIAS_ATRASADA = 1;
 const ESPERA_DIAS_CRITICA = 3;
 // Plazo de RRHH una vez aprobada (src/config.js DIAS_HABILES_PROCESO_RRHH).
 const DIAS_HABILES_PROCESO_RRHH = 3;
+// Plazo de RRHH para enviar candidatos, por tanda (src/config.js DIAS_HABILES_RECLUTAMIENTO).
+const DIAS_HABILES_RECLUTAMIENTO = 6;
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -727,7 +729,7 @@ function correoReclutamientoElegido(nombre: string, sol: any, candidatoNombre: s
 function correoReclutamientoTodosRechazados(nombre: string, sol: any, appUrl: string) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">El solicitante rechazó a todos los candidatos enviados para la solicitud ${sol.codigo}. Agrega una nueva tanda de candidatos desde Contratación: el plazo de reclutamiento (5 días hábiles) vuelve a correr desde este rechazo.</p>
+    <p style="margin:0">El solicitante rechazó a todos los candidatos enviados para la solicitud ${sol.codigo}. Agrega una nueva tanda de candidatos desde Contratación: el plazo de reclutamiento (${DIAS_HABILES_RECLUTAMIENTO} días hábiles) vuelve a correr desde este rechazo.</p>
     ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
     ${boton(appUrl, 'Ir a Contratación', 'contrataciones')}`);
 }

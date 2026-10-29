@@ -68,7 +68,7 @@ export function resumen(sol, centrosMap, trabMap) {
     case 'traslado':
       return `${escapeHtml(trab())} · ${escapeHtml(cen(sol.centro_origen_id))} → ${escapeHtml(cen(sol.centro_destino_id))}`;
     case 'aumento_sueldo':
-      if (d.monto_aumento != null) return `${escapeHtml(trab())} · aumento de ${pesos(d.monto_aumento)}`;
+      if (d.monto_aumento != null) return `${escapeHtml(trab())} · aumento de ${pesos(d.monto_aumento)}${d.fecha_efectiva ? ' desde el ' + escapeHtml(fechaCorta(d.fecha_efectiva)) : ''}`;
       return `${escapeHtml(trab())} · ${d.sueldo_actual != null ? pesos(d.sueldo_actual) : '—'} → ${d.sueldo_nuevo != null ? pesos(d.sueldo_nuevo) : '—'}`;
     case 'bono':
       return `${escapeHtml(trab())} · ${escapeHtml(d.tipo_bono || 'Bono')}${d.monto != null ? ' · ' + pesos(d.monto) : ''}`;

@@ -13,7 +13,7 @@ const X = 'x';
 const TIPOS = {
   ingreso: { detalle: { cargo: X, cantidad: X, sueldo_liquido: 1, tipo_contrato: X, plazo: X, turno: X, colacion: X, fecha_ingreso: X, cliente: X }, motivo: X },
   traslado: { detalle: { cargo: X, fecha_traslado: X, modificaciones_contractuales: X }, motivo: null },
-  aumento_sueldo: { detalle: { monto_aumento: 1, motivo: X } },
+  aumento_sueldo: { detalle: { monto_aumento: 1, fecha_efectiva: X, motivo: X } },
   cambio_cargo: { detalle: { cargo_actual: X, cargo_nuevo: X, fecha_efectiva: X, motivo: X } },
   cambio_turno: { detalle: { turno_nuevo: X, motivo: X } },
   renovacion: { detalle: { tipo_contrato_actual: X, fecha_termino_actual: X, tipo_renovacion: 'plazo', nueva_fecha_termino: X, motivo: X } },

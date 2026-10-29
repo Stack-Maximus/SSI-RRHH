@@ -125,7 +125,7 @@ function reclCard(r, candidatos) {
       <div>${decisionCandidatoBadge(c.decision)}</div>
     </div>`).join('');
 
-  // Plazo de RRHH (5 días hábiles por tanda, se reinicia con cada rechazo
+  // Plazo de RRHH (6 días hábiles por tanda, se reinicia con cada rechazo
   // total -- ver ui/reclutamiento-sla.js). Mientras el solicitante revisa,
   // se muestra cómo quedó la última tanda enviada.
   const sla = resumenReclutamiento(r, candidatos);

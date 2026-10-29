@@ -1894,13 +1894,36 @@ Cómo están hechas (mismo criterio que los Excel de ejemplo del SGC):
 
 Pedido: abrir el formulario en un modal; botón al sistema en los correos; recordatorio personalizado a los
 aprobadores; adjunto obligatorio en Renuncia voluntaria; causal Ausentismo; nuevo tipo Cambio de turno; quitar
-Turno de Traslado; plazo de 3 días hábiles en todas las solicitudes (con fechas bloqueadas); y plazo de 5 días
+Turno de Traslado; plazo de 3 días hábiles en todas las solicitudes (con fechas bloqueadas); y plazo de 6 días
 hábiles de RRHH en Reclutamiento, que se reinicia con cada rechazo.
 
 **Ejecutar en Supabase, en este orden y por separado:** `0021_tipo_cambio_turno.sql` y después
 `0022_turno_adjuntos_recordatorios.sql` (0021 solo agrega el valor del enum; Postgres no deja usarlo en la misma
-transacción). Luego **volver a desplegar la Edge Function `notificar`** y, recomendado, configurar el secret
+transacción). Luego **volver a desplegar la Edge Function `Notificar`** (desde el Dashboard: pegar
+`supabase/dashboard/Notificar/index.ts`, ver abajo) y, recomendado, configurar el secret
 `APP_URL` con la URL pública de Vercel (ver "Botón al sistema").
+
+### Desplegar `Notificar` desde el Dashboard (versión de un solo archivo)
+El Dashboard de Supabase no ve la carpeta `_shared/`, por eso al pegar `supabase/functions/notificar/index.ts`
+falla con `Module not found ".../_shared/pdf-comprobante.ts"` (ver sección 1). Para poder seguir usando el
+Dashboard quedó una versión **empaquetada en un solo archivo** de cada función que usa `_shared/`:
+
+| Función en el Dashboard | Archivo para pegar |
+|---|---|
+| `Notificar` | `supabase/dashboard/Notificar/index.ts` |
+| `comprobante-pdf` | `supabase/dashboard/comprobante-pdf/index.ts` |
+| `maestro-pdf` | `supabase/dashboard/maestro-pdf/index.ts` |
+
+Dashboard → Edge Functions → la función → Code → borrar todo, pegar el archivo completo → Deploy. Son
+archivos generados (no se editan a mano): si cambia la función o algo de `_shared/`, se regeneran con
+esbuild desde `supabase/functions/`:
+```
+npx esbuild notificar/index.ts --bundle --format=esm --platform=neutral --target=es2022 \
+  --external:jsr:* --external:npm:* --charset=utf8 --outfile=../dashboard/Notificar/index.ts
+```
+(igual para `comprobante-pdf` y `maestro-pdf`). Con el CLI no hace falta: `npx supabase functions deploy
+Notificar` desde la raíz del proyecto ya incluye `_shared/`. La carpeta `supabase/dashboard/` no la toma el CLI.
+Probadas: las tres cargan en Deno y responden (OPTIONS / sin sesión).
 
 ### Nueva solicitud en un modal
 - La vista muestra tarjetas por tipo; al elegir una se abre un modal con sus campos y los botones Cancelar /
@@ -1919,6 +1942,23 @@ transacción). Luego **volver a desplegar la Edge Function `notificar`** y, reco
   de renuncia). Si se quiere bloquear también, es cambiar `modo: 'avisar'` por `'bloquear'` en
   `bodyDesvinculacion()`.
 - Es validación de pantalla (no de base de datos).
+
+### Corte del día 24: Ingreso y Aumento de sueldo (29-oct-2026)
+- La **Fecha de ingreso** (Ingreso) y la **Fecha efectiva del aumento** (Aumento de sueldo, campo que volvió) son
+  **obligatorias** y solo se pueden elegir dentro del **periodo vigente**, que cierra el día 24
+  (`DIA_CORTE_PERIODO` en `config.js`):
+  - desde la fecha mínima (hoy + 3 días hábiles) hasta el 24 de ese mes;
+  - si esa fecha mínima ya cae después del 24, el periodo pasa al mes siguiente: **del 1 al 24**.
+  - Ej.: creada el 29-oct -> del 3 al 24 de noviembre; creada el 21-oct (mínimo 26-oct) -> del 1 al 24 de
+    noviembre; creada el 22-dic -> del 1 al 24 de enero.
+- No se pueden elegir fechas de periodos posteriores (solo el vigente). El calendario limita con min/max, el
+  formulario explica el periodo y bloquea el envío si la fecha queda fuera.
+- El cálculo es `periodoConCorte()` en `supabase/functions/_shared/dias-habiles.js`. Validación de pantalla (no
+  de base de datos), igual que la de 3 días hábiles. Una solicitud pendiente que se edite debe quedar dentro
+  del periodo vigente al guardarse.
+- El aumento muestra la fecha en el detalle ("Fecha efectiva") y en el resumen ("aumento de $X desde el ...").
+  Plantilla Excel de Aumento de sueldo regenerada con ese campo. No cambia ninguna Edge Function (no hay que
+  volver a desplegar `Notificar`) ni la base de datos.
 
 ### Traslado sin Turno
 - El formulario ya no pide Turno. Los traslados antiguos que lo tengan lo siguen mostrando y lo conservan al
@@ -1963,8 +2003,15 @@ transacción). Luego **volver a desplegar la Edge Function `notificar`** y, reco
   `notificar`). Cada envío queda en la tabla `recordatorios_aprobacion`.
 - La espera de un turno se cuenta desde la última decisión anterior (o la creación de la solicitud).
 
-### SLA de Reclutamiento y selección (5 días hábiles, se reinicia con cada rechazo)
-- RRHH tiene 5 días hábiles para enviar candidatos. Se mide por tanda: la 1.a desde que RRHH crea el proceso; cada
+### SLA de Reclutamiento y selección (6 días hábiles, se reinicia con cada rechazo)
+- RRHH tiene 6 días hábiles extra para enviar candidatos (eran 5; se cambió a 6 el 29-oct-2026, a pedido:
+  `DIAS_HABILES_RECLUTAMIENTO` en `config.js` y en `notificar`).
+- Al elegir **Ingreso**, el formulario muestra arriba un aviso (en tono ámbar): "El proceso de contratación es de 3
+  días hábiles. Si RRHH tiene que buscar candidatos (Reclutamiento y selección), se suman 6 días hábiles extra, y
+  ese plazo se renueva cada vez que se rechazan todos los candidatos propuestos."
+- El correo a RRHH cuando se rechazan todos los candidatos dice el plazo (6 días hábiles): hay que volver a pegar
+  `supabase/dashboard/Notificar/index.ts` en el Dashboard para que tome el número nuevo.
+- Se mide por tanda: la 1.a desde que RRHH crea el proceso; cada
   tanda siguiente, desde que el solicitante rechazó a todos los de la anterior. Mientras el solicitante revisa, el
   reloj de RRHH no corre. Antes de crear el proceso, la vacante sigue contando como "sin iniciar" en el SLA de
   Contratación (desde la aprobación).

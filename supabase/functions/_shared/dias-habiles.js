@@ -196,3 +196,23 @@ export function sumarDiasHabiles(desde, n) {
 export function fechaLocalISO(date) {
   return claveDeFecha(new Date(date));
 }
+
+/**
+ * Periodo con día de corte (oct. 2026, a pedido: Ingreso y Aumento de sueldo
+ * cierran el día 24 de cada mes). Recibe la primera fecha posible
+ * ('YYYY-MM-DD', normalmente hoy + 3 días hábiles) y devuelve el periodo
+ * vigente:
+ *   - si esa fecha cae el día `diaCorte` o antes -> desde esa fecha hasta el
+ *     `diaCorte` del mismo mes;
+ *   - si cae después del corte -> el periodo siguiente: del 1 al `diaCorte`
+ *     del mes que viene.
+ * Ej. (corte 24): mínimo 03-11 -> 03-11 a 24-11; mínimo 27-10 -> 01-11 a 24-11.
+ * Devuelve { desde, hasta, mesSiguiente } con fechas 'YYYY-MM-DD'.
+ */
+export function periodoConCorte(desdeISO, diaCorte) {
+  const [y, m, d] = String(desdeISO).split('-').map(Number);
+  if (d <= diaCorte) return { desde: desdeISO, hasta: clave(y, m, diaCorte), mesSiguiente: false };
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  return { desde: clave(ny, nm, 1), hasta: clave(ny, nm, diaCorte), mesSiguiente: true };
+}

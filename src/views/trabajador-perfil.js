@@ -9,7 +9,7 @@
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen, pesos } from '../ui/solicitud-format.js';
+import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen } from '../ui/solicitud-format.js';
 import { renderComprobante } from './comprobante.js';
 
 function diasHasta(fechaISO) {
@@ -84,7 +84,6 @@ export async function renderTrabajadorPerfil(container, trabajadorId, backView) 
         <div class="dl-row"><span class="dl-k">Cargo</span><span class="dl-v">${escapeHtml(t.cargo || '—')}</span></div>
         <div class="dl-row"><span class="dl-k">Profesión</span><span class="dl-v">${escapeHtml(t.profesion || '—')}</span></div>
         <div class="dl-row"><span class="dl-k">Centro de costo</span><span class="dl-v">${escapeHtml(centro?.nombre || '—')}</span></div>
-        <div class="dl-row"><span class="dl-k">Sueldo líquido pactado</span><span class="dl-v">${t.sueldo_liquido != null ? pesos(t.sueldo_liquido) : '—'}</span></div>
         <div class="dl-row"><span class="dl-k">Tipo de contrato</span><span class="dl-v">${escapeHtml(t.tipo_contrato || '—')}</span></div>
         <div class="dl-row"><span class="dl-k">Vencimiento de contrato</span><span class="dl-v">${vencimientoHtml(t)}</span></div>
         ${t.requiere_anexo_renovacion ? `<div class="dl-row"><span class="dl-k">Anexo de renovación</span><span class="dl-v"><span class="badge badge-danger">Pendiente -- bloquea traslado</span></span></div>` : ''}

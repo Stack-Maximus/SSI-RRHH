@@ -68,7 +68,7 @@ export const Data = {
   async todosTrabajadores() {
     const { data, error } = await supabase
       .from('trabajadores')
-      .select('id, rut, nombre, nombres, apellido_paterno, apellido_materno, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
+      .select('id, rut, nombre, nombres, apellido_paterno, apellido_materno, profesion, cargo, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
       .order('nombre');
     if (error) throw error;
     return data || [];
@@ -78,7 +78,7 @@ export const Data = {
   async trabajadorPorId(id) {
     const { data, error } = await supabase
       .from('trabajadores')
-      .select('id, rut, nombre, nombres, apellido_paterno, apellido_materno, profesion, cargo, sueldo_liquido, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
+      .select('id, rut, nombre, nombres, apellido_paterno, apellido_materno, profesion, cargo, centro_costo_id, activo, fecha_termino_contrato, contrato_indefinido, tipo_contrato, requiere_anexo_renovacion')
       .eq('id', id).single();
     if (error) throw error;
     return data;

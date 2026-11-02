@@ -3,13 +3,18 @@
  *  - Exportar: descarga el maestro actual en Excel (refleja traslados aprobados).
  *  - Importar: sube la planilla del ERP, muestra trabajador por trabajador qué
  *    cambia (nuevo / modificado / sin cambios) y, al confirmar, aplica el upsert.
+ *
+ * Sin sueldo (nov. 2026, a pedido): Traslado ya no usa el sueldo, así que el
+ * maestro no lo muestra, no lo exporta, la plantilla no lo pide y el
+ * importador lo ignora si una planilla antigua todavía trae esa columna (la
+ * columna trabajadores.sueldo_liquido sigue en la base, sin uso).
  */
 
 import * as XLSX from 'xlsx';
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { pesos, fechaCorta } from '../ui/solicitud-format.js';
+import { fechaCorta } from '../ui/solicitud-format.js';
 import { renderTrabajadorPerfil } from './trabajador-perfil.js';
 import { TIPOS_CONTRATO, DOTACION_CODIGOS } from '../config.js';
 import { nuevoLibroSgc, hojaSgc, descargarLibroSgc } from '../ui/xlsx-sgc.js';
@@ -20,13 +25,6 @@ let codigoToId = new Map();      // código centro -> id
 let idToCentro = new Map();      // id -> {codigo, nombre}
 
 const normRut = (v) => String(v ?? '').replace(/[.\s]/g, '').toUpperCase();
-const parseMoney = (v) => {
-  if (v == null || v === '') return null;
-  if (typeof v === 'number') return Math.round(v);
-  const s = String(v).replace(/\$/g, '').replace(/\s/g, '').replace(/\./g, '').replace(/,/g, '.');
-  const n = Number(s);
-  return isNaN(n) ? null : Math.round(n);
-};
 const txt = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim());
 const parseFecha = (v) => {
   if (v == null || v === '') return null;
@@ -194,7 +192,7 @@ function pintarTabla(container) {
   });
 }
 
-const HEADERS = ['RUT', 'Nombres', 'Apellido Paterno', 'Apellido Materno', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Sueldo Líquido Pactado', 'Tipo de Contrato', 'Fecha Término Contrato', 'Contrato Indefinido'];
+const HEADERS = ['RUT', 'Nombres', 'Apellido Paterno', 'Apellido Materno', 'Profesión', 'Cargo', 'Código Centro Costo', 'Nombre Centro Costo', 'Tipo de Contrato', 'Fecha Término Contrato', 'Contrato Indefinido'];
 
 // Formato de cada columna en los Excel con el diseño del SGC (ui/xlsx-sgc.js).
 // Los títulos son HEADERS tal cual: el importador los reconoce por nombre.
@@ -207,7 +205,6 @@ const FORMATO_COLUMNAS = {
   'Cargo':                  { icono: 'briefcase', px: 145, estilo: 'normal' },
   'Código Centro Costo':    { icono: 'hash', px: 120, alinear: 'centro', estilo: 'normal' },
   'Nombre Centro Costo':    { icono: 'building-2', px: 175, estilo: 'normal' },
-  'Sueldo Líquido Pactado': { icono: 'banknote', px: 125, alinear: 'centro', estilo: 'normal', numFmt: '"$" #,##0' },
   'Tipo de Contrato':       { icono: 'file-signature', px: 125, estilo: 'normal' },
   'Fecha Término Contrato': { icono: 'calendar-x', px: 125, alinear: 'centro', estilo: 'normal' },
   'Contrato Indefinido':    { icono: 'infinity', px: 120, estilo: 'pildora' }
@@ -252,8 +249,8 @@ async function descargarPlantilla() {
     try {
       const c0 = centros[0];
       const ejemplos = [
-        ['12.345.678-9', 'Juan', 'Pérez', 'González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo != null ? String(c0.codigo) : '10', c0?.nombre ?? '', 650000, 'Obra o Faena', '2027-03-31', 'No'],
-        ['98.765.432-1', 'María', 'Soto', 'Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 1200000, 'Indefinido', '', 'Sí']
+        ['12.345.678-9', 'Juan', 'Pérez', 'González', 'Constructor Civil', 'Maestro Albañil', c0?.codigo != null ? String(c0.codigo) : '10', c0?.nombre ?? '', 'Obra o Faena', '2027-03-31', 'No'],
+        ['98.765.432-1', 'María', 'Soto', 'Rojas', 'Prevencionista', 'Jefe de Terreno', '', '', 'Indefinido', '', 'Sí']
       ];
       const wb = nuevoLibroSgc();
 
@@ -282,7 +279,6 @@ async function descargarPlantilla() {
         { etiqueta: 'RUT', valor: 'Es la clave: si ya existe en el sistema se ACTUALIZA; si es nuevo se CREA. Antes de aplicar, la app muestra trabajador por trabajador qué cambia.', icono: 'id-card', ancho: 'completo' },
         { etiqueta: 'Nombres y apellidos', valor: '"Nombres", "Apellido Paterno" y "Apellido Materno" van en columnas separadas. "Apellido Materno" puede ir vacío; "Nombres" y "Apellido Paterno" no deberían quedar vacíos.', icono: 'user', ancho: 'completo' },
         { etiqueta: 'Código Centro Costo', valor: 'Debe coincidir con uno de la tabla "Centros de costo válidos", más abajo.', icono: 'hash', ancho: 'completo' },
-        { etiqueta: 'Sueldo Líquido Pactado', valor: 'Número, sin $ ni puntos (ej.: 650000).', icono: 'banknote', ancho: 'completo' },
         { etiqueta: 'Tipo de Contrato', valor: 'Plazo Fijo / Obra o Faena / Indefinido (vacío si no se conoce). Si queda en "Obra o Faena", el sistema exige un anexo de renovación antes de poder trasladar a ese trabajador.', icono: 'file-signature', ancho: 'completo' },
         { etiqueta: 'Fecha Término Contrato', valor: 'Formato AAAA-MM-DD. Se deja vacía si el contrato es indefinido.', icono: 'calendar-x', ancho: 'completo' },
         { etiqueta: 'Contrato Indefinido', valor: 'Sí / No. Si es "Sí", el trabajador no entra al aviso de próximos vencimientos.', icono: 'infinity', ancho: 'completo' },
@@ -322,7 +318,6 @@ async function exportar() {
         t.cargo ?? '',
         idToCentro.get(t.centro_costo_id)?.codigo != null ? String(idToCentro.get(t.centro_costo_id).codigo) : '',
         idToCentro.get(t.centro_costo_id)?.nombre ?? '',
-        t.sueldo_liquido ?? '',
         t.tipo_contrato ?? '',
         t.fecha_termino_contrato ?? '',
         t.contrato_indefinido ? 'Sí' : 'No'
@@ -421,7 +416,6 @@ async function importar(file, container) {
       apellido_materno: apellidoMaterno,
       profesion: txt(pick(rn, 'profesion')),
       cargo: txt(pick(rn, 'cargo')),
-      sueldo_liquido: parseMoney(pick(rn, 'sueldo liquido pactado', 'sueldo liquido', 'sueldo')),
       centro_costo_id: codigo ? (codigoToId.get(codigo) ?? null) : null,
       // Si no se reconoce el valor, no se toca el tipo_contrato ya guardado -- se
       // reenvía el mismo valor que ya tenía (en vez de omitir la clave) para que
@@ -446,7 +440,6 @@ async function importar(file, container) {
       cmp('apellido_materno', 'Apellido Materno');
       cmp('cargo', 'Cargo');
       cmp('profesion', 'Profesión');
-      cmp('sueldo_liquido', 'Sueldo', pesos);
       cmp('tipo_contrato', 'Tipo de contrato');
       cmp('fecha_termino_contrato', 'Fecha término', fechaCorta);
       cmp('contrato_indefinido', 'Indefinido', (v) => (v ? 'Sí' : 'No'));

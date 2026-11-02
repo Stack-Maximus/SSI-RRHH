@@ -15,7 +15,8 @@ import { Toast } from '../ui/toast.js';
 import { ROLE_LABELS } from '../config.js';
 import { escapeHtml } from '../ui/utils.js';
 
-const ROLES = ['solicitante', 'supervisor', 'aprobador', 'rrhh', 'prevencionista', 'admin'];
+// 'supervisor' se retiró en nov. 2026 (migración 0023): hacía lo mismo que Solicitante.
+const ROLES = ['solicitante', 'aprobador', 'rrhh', 'prevencionista', 'admin'];
 
 export async function renderUsuarios(container) {
   container.innerHTML = '<div class="view-loading">Cargando usuarios...</div>';

@@ -75,7 +75,10 @@ export const Auth = {
     state.user = {
       id: perfil.id,
       name: perfil.nombre,
-      role: perfil.rol,                          // ← se mapea desde la columna `rol`
+      // ← se mapea desde la columna `rol`. 'supervisor' se retiró en nov. 2026
+      // (migración 0023 lo pasa a 'solicitante'); si la app nueva se publica
+      // antes de correr esa migración, se lo trata igual que a un solicitante.
+      role: perfil.rol === 'supervisor' ? 'solicitante' : perfil.rol,
       email: authUser.email,
       centroCostoId: perfil.centro_costo_id,
       esGerente: perfil.es_gerente_operaciones

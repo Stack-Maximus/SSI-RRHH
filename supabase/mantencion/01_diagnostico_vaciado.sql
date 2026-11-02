@@ -1,14 +1,17 @@
 -- =====================================================================
 -- 01_diagnostico_vaciado.sql  ·  SOLO LECTURA: no borra ni cambia nada.
 --
--- Córrelo ANTES de 02_vaciar_solicitudes_y_trabajadores.sql (SQL Editor de
--- Supabase, todo de una vez). Devuelve una sola tabla con:
+-- Córrelo ANTES de 02_vaciar_todo_menos_usuarios.sql (SQL Editor de
+-- Supabase, todo de una vez). Actualizado en nov. 2026: incluye Cambio de
+-- turno / recordatorios (0021-0022), centros de costo y cargos.
+-- Devuelve una sola tabla con:
 --   1. Cuántas filas hay en cada tabla que se va a vaciar.
 --   2. Toda tabla de la base que apunta a esas tablas, y qué le pasa a ella
 --      al vaciarlas. Si alguna dice "⚠ BLOQUEA", NO corras el 02 y avísame:
 --      es una tabla que no conozco (de otro módulo) y el vaciado fallaría.
 --   3. Triggers que se ejecutan al borrar (solo para tener el panorama).
 --   4. Archivos subidos en Storage (se vacían aparte, desde el Dashboard).
+--   6. Usuarios que quedan sin centro de costo asignado (se reasigna en la app).
 --   5. La numeración actual (folios y N° de solicitud).
 -- =====================================================================
 
@@ -23,7 +26,10 @@ with tablas (orden, tabla) as (
     (7,  'public.homologacion_rechazo_documentos'),
     (8,  'public.reclutamientos'),
     (9,  'public.reclutamiento_candidatos'),
-    (10, 'public.trabajadores')
+    (10, 'public.trabajadores'),
+    (11, 'public.recordatorios_aprobacion'),
+    (12, 'public.centros_costo'),
+    (13, 'public.cargos')
 ),
 existentes as (
   select orden, tabla, to_regclass(tabla) as rel from tablas where to_regclass(tabla) is not null
@@ -40,6 +46,8 @@ fks as (
     format('%s.%s  →  %s', c.conrelid::regclass, a.attname, c.confrelid::regclass) as objeto,
     case
       when c.conrelid in (select rel from existentes) then 'OK: el script 02 también la vacía'
+      when c.conrelid = 'public.perfiles'::regclass and a.attname = 'centro_costo_id'
+        then 'OK: el script 02 deja en blanco el centro de costo de los usuarios (se vuelve a asignar en Usuarios)'
       when c.confdeltype = 'c' then 'OK: sus filas se borran solas (ON DELETE CASCADE)'
       when c.confdeltype = 'n' then 'OK: el dato queda en blanco (ON DELETE SET NULL)'
       when c.confdeltype = 'd' then 'OK: el dato vuelve a su valor por defecto'
@@ -67,7 +75,7 @@ archivos as (
     b.id as objeto, count(o.id)::text || ' archivo(s)' as detalle
   from storage.buckets b
   left join storage.objects o on o.bucket_id = b.id
-  where b.id in ('traslado-documentos', 'contratacion-documentos', 'reclutamiento-cv')
+  where b.id in ('traslado-documentos', 'contratacion-documentos', 'reclutamiento-cv', 'solicitud-adjuntos')
   group by b.id
 ),
 folios as (
@@ -100,6 +108,11 @@ secuencias as (
 select seccion, objeto, detalle
 from (
   select * from conteos
+  union all
+  select '6. Usuarios que quedan sin centro de costo', 500, coalesce(p.email, p.nombre, p.id::text),
+         'tiene centro asignado; queda en blanco (rol ' || p.rol::text || ')'
+  from public.perfiles p
+  where p.centro_costo_id is not null
   union all select * from fks
   union all select * from triggers_borrado
   union all select * from archivos

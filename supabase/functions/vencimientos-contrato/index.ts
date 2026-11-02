@@ -6,13 +6,11 @@
 //
 //  A quién avisa, por cada trabajador con vencimiento en 30 o 15 días:
 //    - Todo el equipo de RRHH (rol 'rrhh', activos)
-//    - Todo el equipo de Supervisores (rol 'supervisor', activos)
 //    - El Administrador de obra del centro de costo del trabajador
 //      (centros_costo.admin_obra_id)
-//  (Si más adelante quieres acotar RRHH/supervisor por centro de costo,
-//  igual que se hizo con el prevencionista, avisa y lo ajusto del mismo
-//  modo -- por ahora se asumió "todo RRHH y todo Supervisor", según lo
-//  que confirmaste.)
+//  (Hasta nov. 2026 también a todo Supervisor; ese rol se retiró en la
+//  migración 0023 -- sus cuentas pasaron a Solicitante -- y se acordó que el
+//  aviso quede solo para RRHH y el administrador de obra.)
 //
 //  No genera ningún documento -- es solo un correo (según lo pedido).
 //  No toca `contrato_indefinido = true`: esos trabajadores no vencen y
@@ -65,7 +63,6 @@ Deno.serve(async (_req) => {
     const cmap = new Map((centros ?? []).map((c) => [c.id, c]));
 
     const { data: rrhh } = await admin.from('perfiles').select('id, nombre, email').eq('rol', 'rrhh').eq('activo', true);
-    const { data: supervisores } = await admin.from('perfiles').select('id, nombre, email').eq('rol', 'supervisor').eq('activo', true);
 
     const adminObraIds = [...new Set((centros ?? []).map((c) => c.admin_obra_id).filter(Boolean))];
     const { data: adminsObra } = adminObraIds.length
@@ -84,7 +81,6 @@ Deno.serve(async (_req) => {
       const dest = new Map<string, string>(); // email -> nombre
       const add = (p: any) => { if (p?.email) dest.set(p.email, p.nombre ?? ''); };
       (rrhh ?? []).forEach(add);
-      (supervisores ?? []).forEach(add);
       if (centro?.admin_obra_id) add(adminObraMap.get(centro.admin_obra_id));
 
       if (!dest.size) continue;

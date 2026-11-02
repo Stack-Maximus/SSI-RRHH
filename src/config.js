@@ -1,7 +1,8 @@
 /**
  * Constantes de la aplicación.
  * Los roles deben coincidir EXACTAMENTE con el ENUM user_role de la BD:
- *   'admin' | 'rrhh' | 'solicitante' | 'aprobador' | 'prevencionista' | 'supervisor'
+ *   'admin' | 'rrhh' | 'solicitante' | 'aprobador' | 'prevencionista'
+ * ('supervisor' sigue en el enum pero ya no se usa: migración 0023, nov. 2026)
  *
  * Varias vistas todavía son placeholders; se construyen en los próximos sprints.
  */
@@ -9,7 +10,6 @@
 // Menú permitido por rol (claves de vista)
 export const ROLES = {
   solicitante:    { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
-  supervisor:     { menu: ['inicio', 'nueva-solicitud', 'mis-solicitudes'] },
   aprobador:      { menu: ['inicio', 'bandeja'] },
   rrhh:           { menu: ['inicio', 'solicitudes', 'historial', 'aprobaciones-pendientes', 'contrataciones', 'dashboard-rrhh'] },
   prevencionista: { menu: ['inicio', 'homologacion', 'dashboard-prevencion'] },
@@ -24,8 +24,8 @@ export const ROLES = {
 // Unificado en 'solicitante' a pedido explícito -- antes los tipos "de
 // cambio" eran exclusivos de 'supervisor', ver migración
 // 0019_solicitante_tipos_cambio.sql (esa es la puerta real; esto de acá
-// solo decide qué pestañas se muestran). 'supervisor' se deja igual que
-// antes -- no se le quitó nada -- por si ya hay cuentas con ese rol.
+// solo decide qué pestañas se muestran). El rol 'supervisor' se retiró en
+// nov. 2026 (migración 0023: sus cuentas pasaron a 'solicitante').
 // 'bono' se quitó de los 3 roles (oct. 2026, a pedido: "Bonos. Quitar todo
 // ese apartado"); la base también deja de aceptarlo (migración 0020). El
 // tipo sigue existiendo para mostrar las solicitudes de bono ya creadas.
@@ -34,7 +34,6 @@ export const ROLES = {
 // del centro del trabajador).
 export const TIPOS_SOLICITUD_POR_ROL = {
   solicitante: ['ingreso', 'traslado', 'aumento_sueldo', 'cambio_cargo', 'cambio_turno', 'renovacion', 'desvinculacion'],
-  supervisor:  ['aumento_sueldo', 'cambio_cargo', 'cambio_turno', 'renovacion', 'desvinculacion'],
   admin:       ['ingreso', 'traslado', 'aumento_sueldo', 'cambio_cargo', 'cambio_turno', 'renovacion', 'desvinculacion']
 };
 
@@ -64,8 +63,7 @@ export const ROLE_LABELS = {
   rrhh: 'RRHH',
   solicitante: 'Solicitante',
   aprobador: 'Aprobador',
-  prevencionista: 'Prevencionista',
-  supervisor: 'Supervisor'
+  prevencionista: 'Prevencionista'
 };
 
 // Tipos de solicitud SIN documento/autorización propia que cierre el plazo

@@ -1782,6 +1782,9 @@ No lleva el pie como imagen bajo la tabla, para que no tape las filas que se agr
 
 ## 18. Scripts para vaciar solicitudes y trabajadores (oct. 2026)
 
+> **Actualizado en la sección 22 (nov. 2026):** el vaciado ahora se hace con `02_vaciar_todo_menos_usuarios.sql`
+> (incluye centros de costo, cargos y recordatorios) y hay un script para eliminar usuarios de prueba.
+
 En `supabase/mantencion/` (no son migraciones: se corren a mano en el SQL Editor, en este orden):
 
 1. `01_diagnostico_vaciado.sql` -- solo lectura. Cuenta lo que se va a borrar, lista toda tabla que apunta a
@@ -2031,3 +2034,100 @@ Probadas: las tres cargan en Deno y responden (OPTIONS / sin sesión).
 - Probado con el arnés (Playwright), las migraciones 0021/0022 en un Postgres local (cambio de turno, folio, carta
   obligatoria, adjunto ajeno/inexistente, visibilidad del adjunto, políticas de Storage, tabla de recordatorios) y
   la lógica de recordatorios de `notificar` en Deno con datos simulados (permisos, enfriamiento, correo).
+
+## 22. Trabajadores sin sueldo y vaciado completo para partir de cero (nov. 2026)
+
+### Trabajadores sin sueldo
+Traslado ya no usa el sueldo, así que se quitó del maestro de Trabajadores:
+- No se muestra en el perfil del trabajador, no sale en el Excel del maestro y la plantilla de carga
+  (RRH-FOR-DOT-002) ya no tiene la columna "Sueldo Líquido Pactado" ni su instrucción.
+- El importador lo ignora: una planilla antigua que todavía traiga esa columna se puede subir igual.
+- "Marcar como contratado" ya no copia el sueldo de la solicitud de ingreso al trabajador. El formulario de
+  Ingreso sigue pidiendo el "Sueldo líquido pactado" (queda en la solicitud y su comprobante).
+- La columna `trabajadores.sueldo_liquido` sigue en la base, sin uso (no hace falta migración).
+- Archivos: `src/views/trabajadores.js`, `trabajador-perfil.js`, `contratacion-detalle.js`, `src/db/data.js`.
+
+### Vaciado completo, menos los usuarios (`supabase/mantencion/`)
+Pasos, en el SQL Editor de Supabase y en este orden:
+1. **Respaldo** (opcional): Solicitudes → "Exportar maestro (Excel)" y Trabajadores → "Descargar maestro".
+2. `01_diagnostico_vaciado.sql` (solo lectura): cuántas filas se borran, quién apunta a esas tablas (ninguna fila
+   debe decir "⚠ BLOQUEA"), archivos en Storage, numeración y usuarios que quedarán sin centro.
+3. `02_vaciar_todo_menos_usuarios.sql` (cambiar 'NO' por 'VACIAR'): borra solicitudes (pendientes e historial),
+   aprobaciones, documentos de traslado, contrataciones y homologación, reclutamientos y candidatos,
+   recordatorios, el maestro de trabajadores, **centros de costo y cargos**. A los usuarios que tenían un centro
+   asignado se les deja en blanco. No toca usuarios ni el checklist de documentos. Todo o nada.
+   (El `02_vaciar_solicitudes_y_trabajadores.sql` anterior quedó reemplazado: ya no borra nada.)
+4. `03_reiniciar_numeracion.sql`: los folios (RRH-ING-000001, ...) y el N° de solicitud vuelven a 1.
+5. `04_eliminar_usuarios_prueba.sql`: pegar los correos de los usuarios de prueba en la lista. Con 'NO' muestra
+   todos los usuarios y marca "SE ELIMINARÍA" / "NO EXISTE" y si algo los bloquea; con 'ELIMINAR' borra la
+   cuenta y su perfil. No borra nada si un correo no existe, si el usuario todavía aparece en otra tabla o si no
+   quedaría ningún Administrador activo.
+6. **Archivos**: Supabase → Storage → vaciar los buckets `contratacion-documentos`, `traslado-documentos`,
+   `reclutamiento-cv` y `solicitud-adjuntos` (Supabase no deja borrarlos por SQL).
+7. **Volver a configurar** en la app: Centros de costo (con administrador de obra y prevencionista), Cargos, el
+   centro de cada usuario en Usuarios, y la dotación en Trabajadores (con la plantilla nueva).
+
+Probado en un Postgres local con la misma estructura: diagnóstico, vaciado (confirmación, orden, usuarios
+intactos con el centro en blanco), reinicio de folios y eliminación de usuarios (vista previa, correo
+inexistente, último administrador, bloqueos por tablas que los usan, mayúsculas/espacios en el correo).
+
+## 23. Usuarios de prueba por CMD y retiro del rol Supervisor (nov. 2026)
+
+### Correr SQL desde CMD sin instalar PostgreSQL (`sql.mjs`)
+En el PC no está `psql`, así que los scripts se corren con Node (el mismo de la app) mediante
+`supabase/mantencion/sql.mjs`, que usa el paquete `pg`:
+- Todo el archivo va en una sola transacción. Sin `--aplicar` es **modo revisión**: corre, muestra los resultados
+  y hace ROLLBACK. Con `--aplicar` hace COMMIT. Si algo falla, no se guarda nada.
+- Conexión: variable `DB` o, si no está, la URL que el CLI guardó en `supabase/.temp/pooler-url` (Session pooler).
+  La contraseña de la base (Project Settings → Database) se pide sin mostrarla, o se toma de `PGPASSWORD`.
+- SSL siempre activo; para verificar además el certificado de Supabase, descargar el "SSL certificate" del
+  Dashboard y poner su ruta en `PGSSLROOTCERT`.
+- Muestra cada SELECT como tabla y los RAISE NOTICE (oculta los "does not exist, skipping" de los `if exists`).
+- Rechaza archivos con comandos de psql (`\set`, `\if`…) o con su propio `begin;`/`commit;`.
+- Probado contra un Postgres con SSL y contraseña (scram), con tildes en datos y contraseña.
+
+### Eliminar usuarios de prueba y corregir un nombre
+`supabase/mantencion/05_usuarios_nov2026.sql` (SQL plano; sirve con `sql.mjs` y en el SQL Editor, donde se guarda
+de inmediato):
+- Elimina `srhernandez.castillo@gmail.com`, `maxi.her0.115@gmail.com` y `mercaditoferiano@metalium.cl`
+  (perfil + cuenta). Si alguna ya no existe, se omite con un aviso.
+- Deja el nombre de `mhernandez@metalium.cl` como "Maximiliano Hernández" (perfil y metadatos de la cuenta).
+- Muestra las cuentas antes (Resultado 1) y todos los usuarios después (Resultado 2).
+- No cambia nada si alguna cuenta todavía aparece en otra tabla (correr antes el vaciado, sección 22) o si no
+  quedaría un Administrador activo.
+
+Desde CMD:
+```
+cd /d C:\Proyectos\SSI-RRHH\SSI-RRHH
+npm install --no-save pg
+node supabase\mantencion\sql.mjs supabase\mantencion\05_usuarios_nov2026.sql
+node supabase\mantencion\sql.mjs supabase\mantencion\05_usuarios_nov2026.sql --aplicar
+node supabase\mantencion\sql.mjs supabase\migrations\0023_quitar_rol_supervisor.sql --aplicar
+```
+(`npm install --no-save pg` va una sola vez; un `npm ci` posterior lo quita, y basta con repetirlo.)
+
+Si el 05 avisa que una cuenta "todavía aparece en otras tablas" (pasó en producción: solicitudes, aprobaciones y un
+centro de costo a nombre de las cuentas de prueba), primero el vaciado y el reinicio de numeración:
+```
+node supabase\mantencion\sql.mjs supabase\mantencion\02_vaciar_todo_menos_usuarios.sql
+node supabase\mantencion\sql.mjs supabase\mantencion\02_vaciar_todo_menos_usuarios.sql --aplicar
+node supabase\mantencion\sql.mjs supabase\mantencion\03_reiniciar_numeracion.sql --aplicar
+```
+- El 02 ya no exige cambiar `'NO'` por `'VACIAR'` cuando se corre con `sql.mjs`: el runner marca la transacción
+  (`set_config('mantencion.runner', 'sql.mjs', true)`, solo local a la transacción) y el script lo acepta como
+  confirmación, porque el runner ya tiene revisión previa. En el SQL Editor sigue pidiendo `'VACIAR'`.
+- El 03 se corre directo con `--aplicar`: `setval` no se deshace con ROLLBACK, así que su "revisión" reiniciaría
+  igual las secuencias (y no los folios).
+- `mercaditoferiano@metalium.cl` no existía en producción (ni en Authentication ni en perfiles): el 05 la omite.
+
+### Rol Supervisor retirado (migración 0023)
+Supervisor y Solicitante ya hacían lo mismo, así que:
+- `0023_quitar_rol_supervisor.sql`: las cuentas con rol Supervisor pasan a Solicitante (perfil y metadatos),
+  `crear_solicitud_cambio()` y la política de subida de adjuntos dejan de nombrarlo, y una restricción
+  (`perfiles_rol_sin_supervisor`) impide volver a asignarlo. El valor sigue en el enum `user_role` (Postgres no
+  deja quitarlo sin rehacer el tipo), pero nadie lo puede tener. Se puede correr más de una vez.
+- App: Supervisor ya no aparece en Usuarios ni en el menú; si alguien entra con ese rol antes de correr la 0023, se
+  le trata como Solicitante.
+- Aviso de contratos por vencer (`vencimientos-contrato`): ahora le llega solo a RRHH y al administrador de obra
+  del centro del trabajador. Hay que volver a desplegarla (es autocontenida: se puede pegar tal cual en el
+  Dashboard).

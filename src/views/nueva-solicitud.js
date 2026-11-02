@@ -543,7 +543,7 @@ function wireTraslado() {
     // este chequeo del cliente se salta por algún motivo.
     if (t.requiere_anexo_renovacion) {
       alerta.hidden = false;
-      alerta.textContent = `${t.nombre} tiene contrato "Obra o Faena" y no tiene un anexo de renovación al día. Antes de trasladarlo, un supervisor o el administrador debe crear una solicitud de Renovación para este trabajador y esperar a que se apruebe.`;
+      alerta.textContent = `${t.nombre} tiene contrato "Obra o Faena" y no tiene un anexo de renovación al día. Antes de trasladarlo hay que crear una solicitud de Renovación para este trabajador y esperar a que se apruebe.`;
       submitBtn.disabled = true;
     } else {
       alerta.hidden = true;

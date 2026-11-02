@@ -3,13 +3,17 @@
 --
 -- Hace que la numeración vuelva a partir de 1: los folios de los
 -- comprobantes (RRH-ING-000001, RRH-TRA-000001, ...) y el N° de solicitud.
--- Solo funciona con la tabla de solicitudes vacía (después del 02).
+-- Solo funciona con la tabla de solicitudes vacía (después de
+-- 02_vaciar_todo_menos_usuarios.sql).
 --
 -- OJO con el Sistema de Gestión: si ya se imprimieron, enviaron o archivaron
 -- comprobantes con folio, al reiniciar se repetirían (habría dos
 -- RRH-TRA-000001 distintos). En ese caso NO lo corras: la numeración sigue
 -- desde donde iba y no pasa nada. Córrelo solo si lo que borraste eran
 -- datos de prueba.
+--
+-- Desde CMD: córrelo directo con --aplicar (la revisión de sql.mjs no puede
+-- deshacer el reinicio de las secuencias).
 -- =====================================================================
 
 do $$
@@ -17,7 +21,7 @@ declare
   r record;
 begin
   if exists (select 1 from public.solicitudes) then
-    raise exception 'No se cambió nada: todavía hay solicitudes. Corre primero 02_vaciar_solicitudes_y_trabajadores.sql.';
+    raise exception 'No se cambió nada: todavía hay solicitudes. Corre primero 02_vaciar_todo_menos_usuarios.sql.';
   end if;
 
   -- folios por tipo de solicitud

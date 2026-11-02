@@ -262,7 +262,6 @@ export async function renderContratacionDetalle(container, contratacionId, backV
           apellido_materno: c.apellido_materno_candidato,
           cargo: sol.detalle?.cargo || null,
           centro_costo_id: sol.centro_origen_id,
-          sueldo_liquido: sol.detalle?.sueldo_liquido ?? null,
           // Copia el tipo de contrato elegido en la solicitud de ingreso al
           // maestro del trabajador (migración 0013) -- si queda en "Obra o
           // Faena", el trigger de la BD prende requiere_anexo_renovacion solo.

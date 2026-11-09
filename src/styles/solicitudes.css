@@ -219,3 +219,9 @@ tr.row-inactivo { opacity: .5; }
 
 /* Plazo de reclutamiento (tarjeta de Contratación) */
 .recl-sla { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-m); }
+
+/* CV de candidatos de una solicitud de Ingreso (nov. 2026) */
+.cv-titulo { font-size: 13px; font-weight: 600; color: var(--text); margin-top: 4px; }
+.cv-docs { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+.cv-docs .link-btn { overflow-wrap: anywhere; text-align: left; }
+.cv-en-detalle .cv-docs { justify-content: flex-end; margin-top: 0; }

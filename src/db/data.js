@@ -377,13 +377,16 @@ export const Data = {
    * solicitud apunte a un archivo de la carpeta de quien la creó.
    * Devuelve lo que se guarda en detalle.adjunto.
    */
-  async subirAdjuntoSolicitud(file, userId) {
+  async subirAdjuntoSolicitud(file, userId, carpeta = '') {
     const safeName = file.name.replace(/[^\w.\-]+/g, '_').slice(-120);
-    const path = `${userId}/${crypto.randomUUID()}_${safeName}`;
+    // carpeta (ej. 'cv') queda DENTRO de la carpeta del usuario: la política
+    // de Storage sigue viendo su id como primer tramo de la ruta.
+    const path = `${userId}/${carpeta ? carpeta + '/' : ''}${crypto.randomUUID()}_${safeName}`;
     const up = await supabase.storage.from('solicitud-adjuntos')
       .upload(path, file, { upsert: false, contentType: file.type || undefined });
-    if (up.error) throw new Error('No se pudo subir el documento: ' + up.error.message);
-    return { path, nombre: file.name, tipo_mime: file.type || null, bytes: file.size };
+    if (up.error) throw new Error(`No se pudo subir "${file.name}": ` + up.error.message);
+    // nombre: si vino de una carpeta, con su ruta relativa (ej. "Candidatos/Juan Pérez.pdf")
+    return { path, nombre: file.webkitRelativePath || file.name, tipo_mime: file.type || null, bytes: file.size };
   },
 
   /** URL firmada (5 min) para ver/descargar el adjunto de una solicitud */
@@ -395,6 +398,8 @@ export const Data = {
   },
 
   /** Descarga el comprobante en PDF (con el encabezado Metalium y Código/Folio) de una solicitud */
+  // Nov. 2026: la app ya NO usa estas dos (el PDF se genera en el navegador,
+  // ver ui/pdf-solicitudes.js). Quedan por si se necesitan desde otro lado.
   async descargarComprobantePdf(solicitudId) {
     await descargarPdfDeFuncion('comprobante-pdf', { solicitud_id: solicitudId }, 'comprobante.pdf');
   },

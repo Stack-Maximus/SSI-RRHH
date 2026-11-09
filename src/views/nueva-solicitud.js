@@ -50,7 +50,7 @@ import { escapeHtml } from '../ui/utils.js';
 import {
   TIPOS_SOLICITUD_POR_ROL, TIPO_SOLICITUD_META, TIPOS_CONTRATO_INGRESO, CAUSALES_DESVINCULACION,
   CAUSALES_CON_ADJUNTO, ADJUNTO_SOLICITUD, TURNOS, TIPO_RENOVACION_LABELS, DIAS_HABILES_PROCESO_RRHH,
-  DIA_CORTE_PERIODO, DIAS_HABILES_RECLUTAMIENTO
+  DIA_CORTE_PERIODO, DIAS_HABILES_RECLUTAMIENTO, CV_INGRESO
 } from '../config.js';
 import { sumarDiasHabiles, fechaLocalISO, periodoConCorte } from '../utils/dias-habiles.js';
 
@@ -64,6 +64,11 @@ let editando = null;
 // Adjunto ya guardado de la solicitud que se está editando (Desvinculación):
 // si no se elige un archivo nuevo, se conserva este.
 let adjuntoPrevio = null;
+// CV de candidatos en Ingreso (nov. 2026, opcional): los ya guardados en la
+// solicitud que se edita ({path, nombre, ...}) y los archivos nuevos elegidos
+// (File) que se suben al enviar. Los reinicia bodyIngreso().
+let cvsPrevios = [];
+let cvsNuevos = [];
 // Primera fecha que se puede pedir como fecha de ingreso / traslado /
 // efectiva: hoy + DIAS_HABILES_PROCESO_RRHH días hábiles ('YYYY-MM-DD',
 // hora local). Se recalcula cada vez que se abre la vista.
@@ -448,12 +453,15 @@ function renderBody(tipo, sol) {
   // el/los centro(s).
   if (tipo === 'renovacion') wireTipoRenovacion();
   if (tipo === 'desvinculacion') wireDesvinculacion();
+  if (tipo === 'ingreso') wireCvIngreso();
   wireFechas(body);
 }
 
 /* ---------------- INGRESO ---------------- */
 function bodyIngreso(sol) {
   const v = sol?.detalle || {};
+  cvsPrevios = Array.isArray(v.cvs) ? v.cvs.filter(c => c?.path) : [];
+  cvsNuevos = [];
   const centroId = sol ? sol.centro_origen_id : (state.user.centroCostoId || '');
   const nombreCentro = editando ? (centros.find(c => c.id === centroId)?.nombre || '(centro no disponible)') : null;
   return `
@@ -492,7 +500,76 @@ function bodyIngreso(sol) {
     </div></div>
     <div class="form-section"><div class="form-field"><label class="form-label">Motivo / observaciones</label>
       <textarea name="motivo" placeholder="Opcional">${escapeHtml(sol?.motivo || '')}</textarea></div></div>
+    <div class="form-section"><div class="form-field">
+      <label class="form-label">CV de candidatos <span class="muted">(opcional)</span> <span class="muted" id="cv-contador"></span></label>
+      <p class="form-hint">Si ya entrevistaste o reclutaste a alguien, adjunta sus CV para que RRHH los vea en esta solicitud.
+        Puedes elegir varios archivos o una carpeta completa. PDF, Word o imagen, hasta ${MB_MAX} MB cada uno y ${CV_INGRESO.maxArchivos} archivos en total.</p>
+      <div class="cv-botones">
+        <label class="btn btn-secondary btn-sm">📄 Elegir archivos
+          <input type="file" id="cv-archivos" multiple accept="${ADJUNTO_SOLICITUD.accept}" hidden></label>
+        <label class="btn btn-secondary btn-sm">📁 Elegir carpeta
+          <input type="file" id="cv-carpeta" webkitdirectory directory multiple hidden></label>
+      </div>
+      <ul class="cv-lista" id="cv-lista"></ul>
+      <div class="fecha-aviso-warn" id="cv-aviso" hidden></div>
+    </div></div>
   `;
+}
+
+/** Lista y botones de los CV de Ingreso (archivos sueltos o una carpeta). */
+const extDe = (n) => { const m = /\.([^./\\]+)$/.exec(n || ''); return m ? m[1].toLowerCase() : ''; };
+const tamano = (b) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+function wireCvIngreso() {
+  const lista = document.getElementById('cv-lista');
+  const aviso = document.getElementById('cv-aviso');
+  const contador = document.getElementById('cv-contador');
+  if (!lista) return;
+  const extOk = new Set(CV_INGRESO.extensiones);
+
+  const pintar = (mensajes = []) => {
+    lista.innerHTML = [
+      ...cvsPrevios.map((c, i) => `<li class="cv-item">
+          <button type="button" class="link-btn" data-ver-adjunto="${escapeHtml(c.path)}">📎 ${escapeHtml(c.nombre || 'CV')}</button>
+          <span class="muted">ya guardado</span>
+          <button type="button" class="cv-quitar" data-quitar-previo="${i}" title="Quitar de la solicitud">✕</button></li>`),
+      ...cvsNuevos.map((f, i) => `<li class="cv-item">
+          <span>📄 ${escapeHtml(f.webkitRelativePath || f.name)}</span>
+          <span class="muted">${tamano(f.size)}</span>
+          <button type="button" class="cv-quitar" data-quitar-nuevo="${i}" title="Quitar">✕</button></li>`)
+    ].join('');
+    const total = cvsPrevios.length + cvsNuevos.length;
+    contador.textContent = total ? `· ${total} archivo${total === 1 ? '' : 's'}` : '';
+    aviso.hidden = !mensajes.length;
+    aviso.innerHTML = mensajes.join('<br>');
+    lista.querySelectorAll('[data-quitar-previo]').forEach(b => b.addEventListener('click', () => { cvsPrevios.splice(Number(b.dataset.quitarPrevio), 1); pintar(); }));
+    lista.querySelectorAll('[data-quitar-nuevo]').forEach(b => b.addEventListener('click', () => { cvsNuevos.splice(Number(b.dataset.quitarNuevo), 1); pintar(); }));
+  };
+
+  const agregar = (files) => {
+    const otros = [], grandes = [];
+    let sobran = 0;
+    for (const f of files) {
+      const nombre = f.webkitRelativePath || f.name;
+      if (f.name.startsWith('.')) continue;                       // ocultos del sistema (.DS_Store, etc.)
+      if (!extOk.has(extDe(f.name))) { otros.push(nombre); continue; }
+      if (f.size > ADJUNTO_SOLICITUD.maxBytes) { grandes.push(nombre); continue; }
+      if (cvsNuevos.some(x => (x.webkitRelativePath || x.name) === nombre && x.size === f.size)) continue;   // repetido
+      if (cvsPrevios.length + cvsNuevos.length >= CV_INGRESO.maxArchivos) { sobran++; continue; }
+      cvsNuevos.push(f);
+    }
+    const lista5 = (arr) => escapeHtml(arr.slice(0, 5).join(', ')) + (arr.length > 5 ? '…' : '');
+    const mensajes = [];
+    if (otros.length) mensajes.push(`Se omitieron ${otros.length} archivo(s) que no son PDF, Word ni imagen: ${lista5(otros)}`);
+    if (grandes.length) mensajes.push(`Se omitieron ${grandes.length} archivo(s) de más de ${MB_MAX} MB: ${lista5(grandes)}`);
+    if (sobran) mensajes.push(`Máximo ${CV_INGRESO.maxArchivos} archivos por solicitud: se omitieron ${sobran}.`);
+    pintar(mensajes);
+  };
+
+  ['cv-archivos', 'cv-carpeta'].forEach(id => {
+    const inp = document.getElementById(id);
+    inp?.addEventListener('change', () => { agregar([...inp.files]); inp.value = ''; });
+  });
+  pintar();
 }
 
 /* ---------------- TRASLADO ---------------- */
@@ -787,10 +864,18 @@ async function onSubmit(e, getTipo) {
   // queda huérfano en la carpeta del usuario (no lo puede ver nadie más).
   const archivo = payload._archivo;
   delete payload._archivo;
+  // CV de candidatos (Ingreso): se suben uno a uno a la carpeta del usuario.
+  const cvs = payload._cvs || [];
+  delete payload._cvs;
   const subirAdjunto = async () => {
-    if (!archivo) return;
-    btn.textContent = 'Subiendo documento...';
-    payload.detalle.adjunto = await Data.subirAdjuntoSolicitud(archivo, state.user.id);
+    if (archivo) {
+      btn.textContent = 'Subiendo documento...';
+      payload.detalle.adjunto = await Data.subirAdjuntoSolicitud(archivo, state.user.id);
+    }
+    for (let i = 0; i < cvs.length; i++) {
+      btn.textContent = `Subiendo CV ${i + 1} de ${cvs.length}...`;
+      payload.detalle.cvs.push(await Data.subirAdjuntoSolicitud(cvs[i], state.user.id, 'cv'));
+    }
   };
 
   if (editando) {
@@ -850,8 +935,11 @@ function buildIngreso(f) {
       turno: f.turno.value,
       colacion: f.colacion.value,
       fecha_ingreso: f.fecha_ingreso.value || null,
-      cliente: txt(f.cliente.value)
-    }
+      cliente: txt(f.cliente.value),
+      // CV ya guardados que se mantienen; onSubmit suma los nuevos al subirlos.
+      cvs: cvsPrevios.slice()
+    },
+    _cvs: cvsNuevos.slice()
   };
 }
 

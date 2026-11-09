@@ -10,6 +10,7 @@
  */
 
 import { escapeHtml } from './utils.js';
+import { state } from '../core/state.js';
 import { TIPO_SOLICITUD_META, TIPO_RENOVACION_LABELS } from '../config.js';
 import { Data } from '../db/data.js';
 import { Toast } from './toast.js';
@@ -124,7 +125,8 @@ export function detallePares(sol) {
         ['Horario de colación', d.colacion],
         ['Horario', d.horario],
         ['Fecha de ingreso', d.fecha_ingreso],
-        ['Cliente', d.cliente]
+        ['Cliente', d.cliente],
+        [ETIQUETA_CVS, cvsDe(sol).length ? `${cvsDe(sol).length} archivo${cvsDe(sol).length === 1 ? '' : 's'}` : null]
       ];
       break;
     case 'traslado':
@@ -208,6 +210,31 @@ export function detallePares(sol) {
 }
 
 const ETIQUETA_ADJUNTO = 'Documento adjunto';
+const ETIQUETA_CVS = 'CV de candidatos';
+
+/** CV que adjuntó quien solicitó el Ingreso (nov. 2026): [{ path, nombre, ... }]. */
+export function cvsDe(sol) {
+  const c = sol?.detalle?.cvs;
+  return Array.isArray(c) ? c.filter(x => x?.path) : [];
+}
+/** ¿Puede abrir los CV? RRHH y admin, y quien creó la solicitud (Storage
+ * aplica la misma regla: puede_ver_adjunto_solicitud, migración 0022). */
+function puedeVerCvs(sol) {
+  return ['rrhh', 'admin'].includes(state.user?.role) || sol?.solicitante_id === state.user?.id;
+}
+/**
+ * Lista de CV como botones que abren cada archivo (URL firmada, ver
+ * instalarVisorAdjuntos). A quien no los puede abrir solo se le dice cuántos
+ * hay. Devuelve '' si la solicitud no trae CV.
+ */
+export function cvsHtml(sol, { titulo = true } = {}) {
+  const cvs = cvsDe(sol);
+  if (!cvs.length) return '';
+  const encabezado = titulo ? `<div class="cv-titulo">📎 ${ETIQUETA_CVS} enviados por quien solicitó (${cvs.length})</div>` : '';
+  if (!puedeVerCvs(sol)) return `${encabezado}<div class="muted">Los ve RRHH.</div>`;
+  return `${encabezado}<div class="cv-docs">${cvs.map(c =>
+    `<button type="button" class="link-btn" data-ver-adjunto="${escapeHtml(c.path)}" title="Abrir">📄 ${escapeHtml(c.nombre || 'CV')}</button>`).join('')}</div>`;
+}
 
 /** Detalle completo (campos del JSONB) según tipo, como lista de definiciones (HTML) */
 export function detalleHtml(sol) {
@@ -218,7 +245,9 @@ export function detalleHtml(sol) {
       // (el bucket es privado, ver instalarVisorAdjuntos()).
       const valor = k === ETIQUETA_ADJUNTO && path
         ? `<button type="button" class="link-btn" data-ver-adjunto="${escapeHtml(path)}">📎 ${escapeHtml(String(v))}</button>`
-        : escapeHtml(String(v));
+        : k === ETIQUETA_CVS
+          ? `<span class="cv-en-detalle">${cvsHtml(sol, { titulo: false }) || escapeHtml(String(v))}</span>`
+          : escapeHtml(String(v));
       return `<div class="dl-row"><span class="dl-k">${k}</span><span class="dl-v">${valor}</span></div>`;
     })
     .join('');

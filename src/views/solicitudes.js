@@ -13,12 +13,13 @@ import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
 import { state } from '../core/state.js';
 import { renderComprobante } from './comprobante.js';
 import { tablaFilas, fila, alternarDetalle } from '../ui/filas.js';
+import { descargarMaestroPdf } from '../ui/pdf-solicitudes.js';
 import { aprobacionesEnTurno, esperaDesde, esperaBadge, recordar } from '../ui/aprobacion-turno.js';
 import { nuevoLibroSgc, hojaSgc, descargarLibroSgc } from '../ui/xlsx-sgc.js';
 import { documentoMaestro, fechaHora, duracion } from '../../supabase/functions/_shared/sgc-documentos.js';
 import { TIPO_LABELS } from '../../supabase/functions/_shared/solicitud-detalle.ts';
 
-let _sols = [], _centros, _trab, _perfiles, _checklist = [], _docsTraslado = new Map(), _rechazosTraslado = new Map(), _backView, _container;
+let _todas = [], _sols = [], _centros, _trab, _perfiles, _checklist = [], _docsTraslado = new Map(), _rechazosTraslado = new Map(), _backView, _container;
 
 export function renderSolicitudes(container) {
   return cargar(container, { soloFinalizadas: false, titulo: 'Todas las solicitudes', backView: 'solicitudes' });
@@ -33,6 +34,7 @@ async function cargar(container, opts) {
   container.innerHTML = '<div class="view-loading">Cargando solicitudes...</div>';
   try {
     const [sols, centros, checklist] = await Promise.all([Data.listTodasSolicitudes(), Data.listCentrosAdmin(), Data.checklistDocumentos()]);
+    _todas = sols;
     _sols = opts.soloFinalizadas ? sols.filter(s => s.estado === 'aprobada' || s.estado === 'rechazada') : sols;
     _centros = new Map(centros.map(c => [c.id, c]));
     _checklist = checklist;
@@ -75,7 +77,11 @@ async function cargar(container, opts) {
     const btn = e.currentTarget;
     btn.disabled = true; btn.textContent = 'Generando PDF...';
     try {
-      await Data.descargarMaestroPdf();
+      // Nov. 2026: generado en el navegador (ui/pdf-solicitudes.js), con todas
+      // las solicitudes (no solo las filtradas), igual que el Excel.
+      const trabTodos = await Data.trabajadoresPorId(_todas.map(s => s.trabajador_id));
+      const perfTodos = await Data.perfilesPorId(_todas.map(s => s.solicitante_id));
+      await descargarMaestroPdf({ sols: _todas, centros: _centros, trab: trabTodos, perfiles: perfTodos });
     } catch (err) {
       console.error('[solicitudes] maestro pdf', err);
       Toast.error('Error', err.message || 'No se pudo generar el PDF del maestro.');

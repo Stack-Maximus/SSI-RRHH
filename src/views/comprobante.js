@@ -3,9 +3,10 @@
  * ("Concept 3"). La pantalla dibuja EXACTAMENTE las mismas páginas que el
  * PDF: el contenido sale de sgc-documentos.js, la geometría (y los cortes
  * de página) de sgc-layout.js y el detalle por tipo de solicitud-detalle.ts
- * -- los mismos archivos que usa la Edge Function `comprobante-pdf` (que
- * genera el PDF para descargar y el adjunto del correo de aprobación). Acá
- * cada página se pinta como SVG (ui/sgc-render.js).
+ * -- los mismos archivos que usa la Edge Function `notificar` para el
+ * adjunto del correo de aprobación. Acá cada página se pinta como SVG
+ * (ui/sgc-render.js) y "Descargar PDF" lo genera en el navegador con esos
+ * mismos datos (ui/pdf-solicitudes.js).
  */
 
 import { Data } from '../db/data.js';
@@ -15,6 +16,7 @@ import { componerDocumento } from '../../supabase/functions/_shared/sgc-layout.j
 import { documentoComprobante } from '../../supabase/functions/_shared/sgc-documentos.js';
 import { TIPO_LABELS, DOCUMENTO_CODIGOS, detalleLineas } from '../../supabase/functions/_shared/solicitud-detalle.ts';
 import { asegurarFuentes, medidor, svgDePagina } from '../ui/sgc-render.js';
+import { descargarComprobantePdf } from '../ui/pdf-solicitudes.js';
 
 function goBack(back) {
   if (typeof back === 'function') back();
@@ -45,16 +47,15 @@ export async function renderComprobante(container, solicitudId, backView) {
     return;
   }
 
-  const doc = documentoComprobante(
-    {
-      sol,
-      cmap: centros,
-      aprs: aprobaciones,
-      pmap: perfiles,
-      trabNombre: sol.trabajador_id ? (trab.get(sol.trabajador_id)?.nombre ?? null) : null,
-    },
-    { tipoLabels: TIPO_LABELS, documentoCodigos: DOCUMENTO_CODIGOS, detalleLineas }
-  );
+  // Los mismos datos arman la vista previa y el PDF que se descarga.
+  const datos = {
+    sol,
+    cmap: centros,
+    aprs: aprobaciones,
+    pmap: perfiles,
+    trabNombre: sol.trabajador_id ? (trab.get(sol.trabajador_id)?.nombre ?? null) : null,
+  };
+  const doc = documentoComprobante(datos, { tipoLabels: TIPO_LABELS, documentoCodigos: DOCUMENTO_CODIGOS, detalleLineas });
   const paginas = componerDocumento(doc, medidor());
 
   container.innerHTML = `
@@ -78,7 +79,10 @@ export async function renderComprobante(container, solicitudId, backView) {
     const btn = e.currentTarget;
     btn.disabled = true; btn.textContent = 'Generando PDF...';
     try {
-      await Data.descargarComprobantePdf(solicitudId);
+      // Nov. 2026: se genera en el navegador con el mismo diseño de la vista
+      // previa (antes lo hacía la Edge Function comprobante-pdf, que en
+      // Supabase había quedado con el diseño viejo). Ver ui/pdf-solicitudes.js.
+      await descargarComprobantePdf(datos);
     } catch (err) {
       console.error('[comprobante] descargar PDF', err);
       Toast.error('Error', err.message || 'No se pudo generar el PDF.');

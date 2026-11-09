@@ -266,3 +266,11 @@
 
 .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
 @media (max-width: 720px) { .form-grid-3 { grid-template-columns: 1fr; } }
+
+/* CV de candidatos en Ingreso (nov. 2026) */
+.cv-botones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.cv-botones .btn { cursor: pointer; }
+.cv-lista { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; max-height: 220px; overflow: auto; }
+.cv-item { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.cv-item > span:first-child, .cv-item > .link-btn { overflow-wrap: anywhere; }
+.cv-quitar { border: 0; background: none; color: #b91c1c; cursor: pointer; font-size: 14px; padding: 0 4px; margin-left: auto; }

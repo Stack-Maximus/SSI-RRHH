@@ -2218,3 +2218,108 @@ la tenía: la 0017 no se había corrido. Arreglo: `node supabase\mantencion\sql.
   tu solicitud de ingreso: …" (Mis solicitudes), en las tarjetas de Contratación (el N° queda al final de la línea
   gris) y en los 3 correos de reclutamiento (asunto y cuerpo). Hay que volver a pegar el bundle
   `supabase/dashboard/Notificar/index.ts` en el Dashboard.
+
+## 28. Inspección: ¿falta correr algún script? (nov. 2026)
+
+`supabase/mantencion/14_inspeccion_scripts.sql` (solo lectura; SQL Editor o `sql.mjs ... --guardar`), generado desde
+`supabase/migrations` (si se agrega una migración, hay que regenerarlo). Una sola tabla con estado por ítem:
+- **Migraciones 0001–0025**: tablas, columnas, valores de enum, restricciones con nombre, buckets, funciones,
+  triggers y políticas que deja cada una (considerando los `drop ... if exists` de migraciones posteriores). Las
+  funciones se comparan por contenido (md5 del cuerpo con los espacios normalizados, así da igual CRLF/LF) contra su
+  última versión en el repo: "VERSIÓN ANTERIOR" = hay que volver a correr esa migración. La 0024 se revisa por sus
+  restricciones ajustadas. 0003, 0004, 0007 y 0019 salen "SIN REVISIÓN" (no dejan objetos comprobables).
+- **Scripts puntuales**: 05, 06, 09, 10, 12, 13 por lo que dejan en los datos; 11 por trabajadores activos sin obra;
+  y la configuración de obras sin administrador de obra.
+
+## 29. CV de candidatos en Ingreso, opcional (nov. 2026)
+
+Quien solicita un Ingreso puede adjuntar los CV de candidatos que ya entrevistó o reclutó, para RRHH.
+- **Formulario Ingreso** (nueva y edición): "CV de candidatos (opcional)" con dos botones, *Elegir archivos* (varios)
+  y *Elegir carpeta* (`webkitdirectory`; se conserva la ruta, ej. "Candidatos/Ana Pérez.pdf"). Solo PDF, Word o
+  imagen, hasta 10 MB c/u y 20 por solicitud (`CV_INGRESO` en config.js); lo demás se omite con aviso (los ocultos
+  como .DS_Store, en silencio). Se puede quitar cada uno antes de enviar; al editar se ven los ya guardados.
+- **Guardado**: se suben al enviar, uno a uno ("Subiendo CV 2 de 5..."), al bucket privado `solicitud-adjuntos` en
+  `<id usuario>/cv/<uuid>_<nombre>`; quedan en `detalle.cvs = [{path, nombre, tipo_mime, bytes}]`.
+- **Quién los ve**: RRHH y admin (y quien creó la solicitud) — la misma política de Storage de 0022, sin cambios.
+  Los aprobadores ven solo "CV de candidatos: N archivos · Los ve RRHH". Aparecen en el detalle de la solicitud
+  (Solicitudes, Historial, Mis solicitudes) y en la tarjeta de la solicitud en **Contratación**.
+- **0026_cv_ingreso.sql**: amplía `validar_adjunto_solicitud()` (mismo trigger de 0022): cada CV debe estar en la
+  carpeta de quien solicita y existir en Storage; máx. 20. Lo de Desvinculación queda igual. Sin ella la app funciona.
+- La inspección (14) se regeneró e incluye la 0026.
+
+## 30. PDF igual a la vista previa y con nombre "código - folio" (nov. 2026)
+
+El PDF descargado salía con el diseño viejo (Helvetica, texto cortado) aunque la vista previa mostraba el nuevo: lo
+generaban las Edge Functions `comprobante-pdf` / `maestro-pdf` y la versión desplegada en Supabase era anterior. El
+nombre salía "comprobante.pdf" porque el navegador no puede leer el `Content-Disposition` de la función (CORS).
+- Ahora **se generan en el navegador** (`src/ui/pdf-solicitudes.js`) con los mismos datos y archivos que la vista
+  previa (`sgc-documentos.js` + `sgc-layout.js`) y el mismo pintor de las Edge Functions (`_shared/sgc-pdf.ts`,
+  pdf-lib + fuentes incrustadas). Se cargan con import dinámico al apretar "Descargar" (chunk aparte, ~585 KB gz).
+  `vite.config.js` resuelve los `npm:pdf-lib@...` de Deno al paquete npm; se agregaron `pdf-lib` y
+  `@pdf-lib/fontkit` a `package.json`.
+- Nombre: `<código del documento> - <folio>.pdf` (ej. "RRH-FOR-TRA-002 - RRH-TRA-000005.pdf"); el Maestro:
+  "RRH-FOR-SOL-001 - 09-11-2026.pdf". El Maestro PDF lleva todas las solicitudes (no solo las filtradas).
+- El adjunto del correo de "aprobada" (Edge Function `notificar`) usa el mismo nombre; hay que pegar de nuevo
+  `supabase/dashboard/Notificar/index.ts` en el Dashboard (también trae lo de la sección 27).
+- Probado: la página 1 de la vista previa y del PDF descargado son idénticas (traslado de 2 páginas).
+
+## 31. Correos con el diseño de los exportables (nov. 2026)
+
+Todos los correos del sistema tienen ahora el mismo diseño que el PDF y la vista previa (SGC "Concept 3"),
+validado con una muestra antes de aplicarlo.
+- **Piezas** (`supabase/functions/_shared/correo-sgc.js`, `correoSgc()`): encabezado con logo, banda azul con el
+  título y caja Código / Fecha / Revisión; tarjeta de mensaje (saludo, texto, resumen N° de solicitud · Folio ·
+  Estado, botón); secciones numeradas (número amarillo + banda azul) con fichas con íconos o tabla; pie
+  METALIUM | código | nombre. Solo tablas y estilos en línea, sin el atajo `font:` ni divs con alto (Outlook de
+  escritorio); allí los degradados y esquinas redondeadas se ven como bloques rectos del mismo color. En el celular
+  las columnas se apilan y la tabla esconde columnas secundarias.
+- **Contenido**: los correos de una solicitud reutilizan "Detalle del registro" y "Aprobaciones" del comprobante
+  (`documentoComprobante`, lo mismo que el PDF). La sección "Identificación del registro" no va (repite el
+  encabezado): el N° de solicitud, el folio y el estado van en el resumen del mensaje (decisión del usuario).
+  - Pendiente de aprobación (aprobador) y Rechazada (solicitante, con quién rechazó y su comentario): Detalle + Aprobaciones.
+  - Aprobada (con el PDF adjunto): mensaje distinto para RRHH (plazo de 3 días hábiles), solicitante y aprobadores.
+  - RRHH procesó / Homologación autorizada / Homologación rechazada (solicitante, Gerente de Prevención, RRHH):
+    sección propia + Detalle; el resumen muestra el estado del proceso ("Homologación rechazada", etc.).
+  - Contratación para homologar (prevencionista) y Reclutamiento (opciones / elegido / todos rechazados): sección propia.
+  - Recordatorio de aprobación: tabla de solicitudes con la espera en color (al día / atrasada / crítica).
+  - Alerta de contratos por vencer (`vencimientos-contrato`): resumen diario con tabla, ver sección 32.
+- **Íconos**: PNG de 40x40 en `_shared/iconos-correo.ts` (azul para fichas, azul oscuro para el encabezado, blanco
+  para las tablas), como adjuntos inline `cid:ico-<clave>`; cada correo adjunta solo los que usa (Outlook bloquea
+  las imágenes en base64 dentro del HTML).
+- **Deploy (Dashboard)**: pegar `supabase/dashboard/Notificar/index.ts` en *Notificar* y
+  `supabase/dashboard/vencimientos-contrato/index.ts` en *vencimientos-contrato* (este último ahora importa
+  `_shared/`). Sin SQL.
+- Probado: las 11 clases de correo de `notificar` (17 envíos) y el de vencimientos, corriendo la función completa con
+  una base simulada y Graph interceptado; cada `cid:` tiene su adjunto; capturas en PC y celular sin desborde.
+- No cambiaron: `invitar-usuario` (invitación de cuenta) y `send-email` (lo usan otros módulos, como las cartas a
+  proveedores).
+
+## 32. Alerta diaria de contratos por vencer, activada (nov. 2026)
+
+La Edge Function `vencimientos-contrato` existía en el repo pero nunca se había publicado (no estaba en el Dashboard).
+Se activó con estas decisiones del usuario: **un resumen diario por persona** (no un correo por trabajador) y
+**avisar al activar** los contratos que ya vencían dentro de 30 días.
+- **Qué avisa**: cada contrato una vez por tramo, a los 30 días (o menos) y a los 15 días (o menos, hasta el mismo
+  día). Solo trabajadores activos y sin contrato indefinido. Lo avisado queda en `avisos_vencimiento_contrato`
+  (trabajador, fecha de término, tramo): no se repite, si un día no corre se pone al día al siguiente, y si la fecha de
+  término cambia (renovación) los avisos parten de nuevo. Un contrato que entra con 10 días recibe solo el de 15.
+- **A quién**: RRHH (todos los contratos) y cada administrador de obra (solo los de su obra), un correo por persona
+  con la tabla Trabajador · Cargo · Obra · Vence · Quedan (rojo ≤ 15 días, ámbar el resto). Botón: RRHH "Ir a
+  SSI-RRHH"; adm. de obra "Crear solicitud de renovación" (abre Nueva solicitud). El botón requiere el secret `APP_URL`.
+- **Cuándo**: pg_cron, todos los días a las 12:00 UTC (09:00 en Chile en verano, 08:00 en invierno). El día se calcula en
+  hora de Chile.
+- **Seguridad**: la URL de la función es pública, así que exige el encabezado `x-alerta-secreto` con una clave aleatoria
+  guardada en Vault (`alertas_vencimiento_secreto`), validada con `alertas_vencimiento_secreto_ok()` (solo service_role).
+  Por eso la función va con "Verify JWT" desactivado.
+- **0027_alertas_vencimiento_contrato.sql**: pg_cron + pg_net, la tabla de registro (la leen RRHH y admin), la clave en
+  Vault, las dos funciones y el trabajo diario `alertas-vencimiento-contrato`. Se puede correr más de una vez.
+- **Probar desde el SQL Editor**: `select public.disparar_alertas_vencimiento('{"simular": true}');` (no manda nada) o
+  `select public.disparar_alertas_vencimiento('{"prueba_a": "correo@metalium.cl"}');` (manda el resumen de RRHH solo
+  a esa dirección, marcado [PRUEBA], sin registrar). La respuesta: `select id, status_code, content from
+  net._http_response order by id desc limit 3;`. Mandar de verdad sin esperar: `select public.disparar_alertas_vencimiento();`.
+- **Deploy**: crear la función `vencimientos-contrato` en el Dashboard, pegar `supabase/dashboard/vencimientos-contrato/index.ts`,
+  desactivar Verify JWT, y correr 0027. La inspección (14) revisa también el trabajo de pg_cron y la clave.
+- Probado con base simulada: sin clave o con clave mala responde 401; simular; envío (4 correos: 2 RRHH con 5 contratos,
+  cada adm. de obra con los suyos); segunda corrida el mismo día no manda nada; al bajar un contrato de 30 a 15 días y
+  entrar otro a 29, avisa solo esos dos; la prueba no registra. Excluye indefinidos, inactivos, vencidos y > 30 días.
+  La 0027 se probó en Postgres local con Vault, pg_cron y pg_net simulados (dos corridas, permisos de anon/authenticated).

@@ -155,6 +155,16 @@ export const ADJUNTO_SOLICITUD = {
   accept: '.pdf,.png,.jpg,.jpeg,.doc,.docx'
 };
 
+// CV de candidatos en una solicitud de Ingreso (nov. 2026, opcional): cuando
+// quien solicita ya entrevistó o reclutó, adjunta los CV (varios archivos o
+// una carpeta) para que RRHH los vea en la solicitud. Mismo bucket privado y
+// mismos formatos/tamaño que ADJUNTO_SOLICITUD; tope de archivos por
+// solicitud (la base lo vuelve a revisar, migración 0026).
+export const CV_INGRESO = {
+  maxArchivos: 20,
+  extensiones: ['pdf', 'doc', 'docx', 'png', 'jpg', 'jpeg']
+};
+
 // Turnos de trabajo: 3 turnos fijos, cada uno con su horario de Lunes a
 // Jueves y su horario (distinto, jornada reducida) del Viernes, más
 // "Artículo 22" (trabajador excluido de la limitación de jornada, Art. 22

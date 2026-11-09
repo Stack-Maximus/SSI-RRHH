@@ -9,7 +9,7 @@ import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { fechaCorta, resumen, descripcionIngreso } from '../ui/solicitud-format.js';
+import { fechaCorta, resumen, descripcionIngreso, cvsHtml } from '../ui/solicitud-format.js';
 import {
   estadoContratacionBadge, canalLabel, tipoTrabajadorLabel,
   estadoReclutamientoBadge, decisionCandidatoBadge, nombreCandidatoRecl
@@ -97,6 +97,7 @@ function cardSolicitud(s, contrataciones, centrosMap, perfiles, rechazosMap, rec
       </div>
       <div class="sol-resumen">${descripcionIngreso(s, centrosMap)}</div>
       <div class="sol-detalle muted">Solicitante: ${escapeHtml(solicitante)} · ${fechaCorta(s.created_at)} · ${contrataciones.length}/${cantidad} contratación(es) iniciada(s) · N° ${escapeHtml(s.codigo || '—')}</div>
+      ${cvsHtml(s)}
       ${rows ? `<div class="contr-list">${rows}</div>` : ''}
       <button class="btn btn-secondary" data-iniciar="${s.id}">+ Iniciar contratación</button>
       <div class="form-card" data-form="${s.id}" hidden style="margin-top:4px;"></div>

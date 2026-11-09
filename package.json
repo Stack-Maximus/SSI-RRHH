@@ -12,8 +12,10 @@
     "vite": "^8.0.12"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "@supabase/supabase-js": "^2.106.2",
     "exceljs": "^4.4.0",
+    "pdf-lib": "^1.17.1",
     "sweetalert2": "^11.26.25",
     "xlsx": "^0.18.5"
   }

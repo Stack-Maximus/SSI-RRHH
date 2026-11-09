@@ -2131,3 +2131,90 @@ Supervisor y Solicitante ya hacían lo mismo, así que:
 - Aviso de contratos por vencer (`vencimientos-contrato`): ahora le llega solo a RRHH y al administrador de obra
   del centro del trabajador. Hay que volver a desplegarla (es autocontenida: se puede pegar tal cual en el
   Dashboard).
+
+## 24. Carga inicial desde la "Lista de empleados" del ERP (nov. 2026)
+
+Después del vaciado (sección 22), la dotación se recarga desde `Lista_Empleados_de_metalium-spa.xlsx` (250
+trabajadores, 21 centros de costo, columnas del ERP: RUT, Nombre, Apellido Paterno/Materno, Razón Social,
+Profesión, Cargo, Código/Nombre Centro Costo 1, Fecha suscripción contratación, Tipo de Contrato).
+
+**Orden:** 1) `supabase/mantencion/06_centros_y_cargos_nov2026.sql` con `sql.mjs` (revisión y luego `--aplicar`);
+2) Trabajadores → Importar planilla con la plantilla llena (se entrega por el chat, **no** se guarda en el repo
+porque trae RUT y nombres); 3) asignar administrador de obra y prevencionista a cada centro y el centro de cada
+usuario.
+
+**06_centros_y_cargos_nov2026.sql:** 21 centros (código + nombre tal cual el ERP) y 67 cargos. Idempotente (no
+duplica: centro por código, cargo por nombre sin mayúsculas; reactiva si estaba inactivo). El código se convierte
+al tipo real de la columna `centros_costo.codigo` (sirve si es texto o número). Probado en Postgres con ambos tipos.
+
+**Reglas de traspaso (Lista de empleados → plantilla):**
+- RUT tal cual el ERP (sin puntos, con guion): conviene mantener siempre ese formato, porque el upsert del
+  importador es por RUT exacto.
+- Tipo de contrato: "por obra o faena" → "Obra o Faena" (el importador no reconoce la variante con "por");
+  Contrato Indefinido = Sí solo si es Indefinido.
+- Fecha Término Contrato: vacía. La lista solo trae "Fecha suscripción contratación" (todas ≤ 21-10-2026, también
+  en contratos indefinidos), que es la firma y no el término. Los 30 trabajadores a Plazo Fijo / Obra o Faena
+  quedan sin fecha de término y no entran al aviso de vencimientos hasta que se complete.
+- Cargos unificados (mismo cargo escrito distinto): Asesor/Asesora en prevención de riesgos → "Asesor en
+  Prevención de Riesgos"; Maestro De Estructuras / Estructuras / "Estucturas" → "Maestro de Estructuras";
+  Maestro Estructura Metalica → "Maestro Estructura Metálica"; Maestro de Montaje → "Maestro Montaje"; Jefe de
+  Terreno Coordinador Civil de Terreno → "Jefe de Terreno / Coordinador Civil de Terreno"; Soldador -Armador →
+  "Soldador - Armador". Se dejaron separados "Operador de Máquina" y "Operador de Maquinaria".
+- Profesión: "0" (20) y un número de teléfono → vacía; "obrero" → "Obrero"; "Prevencionista de riesgos" →
+  "Prevencionista de Riesgos"; "Diseñador Garfico" → "Diseñador Gráfico".
+- Razón Social no tiene columna en el sistema. La primera plantilla incluía a los 14 de Faraday SpA; a pedido se
+  generó la versión **solo Metalium SpA (236)**, que es la que se importa. Sin Faraday, los centros 2 (Oficina
+  Central Las Condes) y 10 (Santa Elena) quedan sin dotación, y 6 cargos quedan sin trabajadores (Asesora del
+  Hogar, Ayudante de Construcción, Ayudante de Estructuras, Montador, Servicios Generales, Soldador - Armador);
+  se dejan en el SQL porque existen en el ERP (se pueden desactivar en Cargos si no se usan).
+- La plantilla llena se generó con el mismo código de "Descargar plantilla" (diseño SGC, validaciones) y se
+  verificó simulando el importador: 250 filas, 250 RUT únicos, 0 centros o tipos no reconocidos, todos los
+  cargos presentes en el SQL.
+
+## 25. Error al editar solicitudes: "Could not find the function public.editar_solicitud" (nov. 2026)
+
+La app llama a `editar_solicitud(p_solicitud_id, p_motivo, p_detalle)` (migración 0017) y la base de producción no
+la tenía: la 0017 no se había corrido. Arreglo: `node supabase\mantencion\sql.mjs supabase\migrations\0017_editar_solicitud.sql --aplicar`.
+- Nuevo `supabase/mantencion/07_verificar_migraciones.sql` (solo lectura): revisa por migración (0001–0023) que
+  existan sus funciones (con los nombres de parámetros de su última versión), tablas, columnas y valores de enum;
+  resumen OK / FALTAN n y detalle. Se genera desde `supabase/migrations`; no revisa políticas ni triggers.
+- `sql.mjs` ahora, después de `--aplicar`, manda `notify pgrst, 'reload schema'` para que la API de Supabase
+  recargue su caché de funciones (el mensaje "in the schema cache" también aparece si la función existe pero la
+  caché quedó vieja).
+
+## 26. Cambio de cargo rechazado por la base, carga puntual de 3 cambios y trabajadores "sin obra" (nov. 2026)
+
+- **0024_tipos_cambio_sin_destino.sql**: la restricción `chk_destino_por_tipo` (esquema base, no está en el repo)
+  solo contemplaba Ingreso y Traslado y rechazaba los tipos de cambio. La 0024 reescribe cada CHECK de
+  `solicitudes` que depende del tipo y de los centros/trabajador como `(tipo de cambio y sin destino) o (regla
+  original)`: Ingreso y Traslado quedan igual. Deja un comentario "ajustada 0024" en cada una (idempotente).
+- **09_cambios_cargo_nov2026.sql / 10_aprobar_cambios_cargo_nov2026.sql**: carga puntual a pedido de 3 Cambios de
+  cargo (Jonathan Panes → Supervisor, Patricio Muñoz → Jefe de Terreno, Francisco Montesinos → Administrador de
+  Obra; fecha efectiva 10-11-2026 = 05-11 + 3 días hábiles; motivo: anexo desde el 03-11-2026), solicitados por
+  Francisco Montesinos y aprobados por Patricio Muñoz. Los cargos se toman de la lista de Cargos ("Jefe de Terreno
+  / Coordinador Civil de Terreno", "Administrador de Obras"). Aprobadas por SQL: no se mandan los correos.
+- **Trabajador "sin centro de costo"** al pedir una Desvinculación: si la dotación se importa antes de crear los
+  centros, el importador dejaba la obra en blanco a esos trabajadores (marcaba "código de centro inválido" pero
+  dejaba aplicar). Arreglos:
+  - `11_reparar_obra_trabajadores.sql` (se entregó solo por el chat, trae RUT): a quienes están sin obra les pone
+    la de la Lista de empleados (por RUT); muestra quiénes siguen sin obra y qué obras no tienen adm. de obra.
+  - Importador de Trabajadores: ya no deja aplicar si algún código de centro no existe (dice cuáles).
+  - Nueva solicitud: el selector de trabajador muestra la obra ("Obra 25" o "SIN OBRA") y, en los tipos de cambio,
+    avisa antes de enviar si el trabajador no tiene obra.
+  - **0025_mensajes_obra_trabajador.sql**: `crear_solicitud_cambio()` con las mismas reglas que 0023 pero mensajes
+    que nombran al trabajador (y RUT) o a la obra, y dicen dónde se corrige.
+
+## 27. Solicitudes en filas y descripción de la vacante en candidatos (nov. 2026)
+
+- **Vista en filas** (`src/ui/filas.js` + `.sol-filas` en `styles/solicitudes.css`): Mis solicitudes, Bandeja,
+  Solicitudes e Historial dejan las tarjetas y pasan a una tabla con encabezado (Solicitud · Descripción · Estado ·
+  Acciones). Cada fila trae su detalle plegado ("Ver detalle"). Las columnas tienen ancho fijo para quedar
+  alineadas con el encabezado (la Bandeja usa la columna de acciones más ancha, `acc-anchas`). En celular se apilan.
+  Se mantiene la clase `.sol-card[data-sol]` en cada fila, así que el resto de la lógica de esas vistas no cambió.
+  Contratación, Homologación y Perfil del trabajador siguen con tarjetas.
+- **Descripción en vez del código** cuando RRHH envía candidatos de una solicitud de ingreso:
+  `descripcionIngreso()` (front, `ui/solicitud-format.js`) y su gemela en la Edge Function `notificar`:
+  "Maestro Albañil · 2 vacantes · Obra 25 LIRAY · ingreso desde el 15-11-2026". Se usa en el panel "Candidatos para
+  tu solicitud de ingreso: …" (Mis solicitudes), en las tarjetas de Contratación (el N° queda al final de la línea
+  gris) y en los 3 correos de reclutamiento (asunto y cuerpo). Hay que volver a pegar el bundle
+  `supabase/dashboard/Notificar/index.ts` en el Dashboard.

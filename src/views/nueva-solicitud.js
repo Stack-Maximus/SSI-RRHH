@@ -233,10 +233,19 @@ function optsCargos(sel) {
   return '<option value="">— Seleccionar cargo —</option>' +
     cargos.map(c => `<option ${c === sel ? 'selected' : ''}>${c}</option>`).join('');
 }
+// Nov. 2026: muestra la obra (código del centro de costo) de cada trabajador,
+// o "SIN OBRA" si en el maestro no tiene -- así se ve antes de enviar por
+// qué no se le puede pedir un aumento, cambio de cargo, desvinculación, etc.
+function obraDe(t) {
+  if (!t?.centro_costo_id) return null;
+  const c = (centros || []).find(x => x.id === t.centro_costo_id);
+  return c ? String(c.codigo) : '?';
+}
 function optsTrabajadores() {
-  return trabajadores.map(t =>
-    `<option value="${t.id}">${t.nombre}${t.cargo ? ' · ' + t.cargo : ''}</option>`
-  ).join('');
+  return trabajadores.map(t => {
+    const obra = obraDe(t);
+    return `<option value="${t.id}">${escapeHtml(t.nombre || '')}${t.cargo ? ' · ' + escapeHtml(t.cargo) : ''} · ${obra ? 'Obra ' + escapeHtml(obra) : 'SIN OBRA'}</option>`;
+  }).join('');
 }
 /**
  * Selector de trabajador. En modo edición (`fijoNombre` no es null) se
@@ -763,6 +772,12 @@ async function onSubmit(e, getTipo) {
   try {
     if (!FORMULARIOS[tipo]) throw 'Este tipo de solicitud ya no está disponible.';
     payload = FORMULARIOS[tipo].build(f);
+    if (TIPOS_CAMBIO.includes(tipo) && payload.trabajador_id) {
+      const t = trabajadores.find(x => x.id === payload.trabajador_id);
+      if (t && !t.centro_costo_id) {
+        throw `${t.nombre} no tiene obra (centro de costo) en el maestro de Trabajadores, y sin obra no hay administrador de obra que apruebe. Pídele al administrador del sistema que se la asigne en Trabajadores.`;
+      }
+    }
   } catch (msg) {
     errorEl.textContent = msg; errorEl.hidden = false; return;
   }

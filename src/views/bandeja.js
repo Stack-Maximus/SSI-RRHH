@@ -8,6 +8,7 @@ import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { tipoLabel, fechaCorta, resumen, detalleHtml } from '../ui/solicitud-format.js';
 import { escapeHtml } from '../ui/utils.js';
+import { tablaFilas, fila, wireFilas } from '../ui/filas.js';
 import { renderComprobante } from './comprobante.js';
 
 export async function renderBandeja(container) {
@@ -35,32 +36,32 @@ export async function renderBandeja(container) {
     return;
   }
 
+  // Nov. 2026: en filas (ver ui/filas.js) en vez de tarjetas. El detalle
+  // completo queda en "Ver detalle"; Aprobar / Rechazar siempre a la vista.
   const cards = items.map(it => {
     const s = it.sol;
-    return `
-      <div class="sol-card" data-apr="${it.aprobacionId}" data-sol="${s.id}">
-        <div class="sol-card-top">
-          <span class="sol-id">${s.codigo || '—'}</span>
-          <span class="sol-tipo">${tipoLabel(s.tipo)}</span>
-          <span class="muted">Tu turno: aprobador ${it.orden}</span>
-        </div>
-        <div class="sol-resumen">${resumen(s, centrosMap, trabMap)}</div>
+    return fila({
+      id: s.id,
+      attrs: `data-apr="${it.aprobacionId}"`,
+      codigo: escapeHtml(s.codigo || '—'),
+      tipo: tipoLabel(s.tipo),
+      descripcion: resumen(s, centrosMap, trabMap),
+      sub: `Solicitada el ${fechaCorta(s.created_at)}`,
+      estado: `<span>Tu turno: aprobador ${it.orden}</span>`,
+      acciones: `
+        <button class="link-btn" data-comprobante="${s.id}">📄 Comprobante</button>
+        <button class="btn btn-danger btn-sm" data-act="rechazar">Rechazar</button>
+        <button class="btn btn-primary btn-sm" data-act="aprobar">Aprobar</button>`,
+      detalle: `
         ${detalleHtml(s)}
-        ${s.motivo ? `<div class="sol-motivo">"${escapeHtml(s.motivo)}"</div>` : ''}
-        <div class="sol-foot">
-          <span class="muted">Solicitada el ${fechaCorta(s.created_at)}</span>
-          <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>
-          <div class="sol-acciones">
-            <button class="btn btn-danger" data-act="rechazar">Rechazar</button>
-            <button class="btn btn-primary" data-act="aprobar">Aprobar</button>
-          </div>
-        </div>
-      </div>`;
+        ${s.motivo ? `<div class="sol-motivo">"${escapeHtml(s.motivo)}"</div>` : ''}`
+    });
   }).join('');
 
   container.innerHTML = `
     <div class="sol-toolbar"><span class="muted">${items.length} pendiente(s)</span></div>
-    <div class="sol-grid">${cards}</div>`;
+    ${tablaFilas(cards, { clase: 'acc-anchas' })}`;
+  wireFilas(container);
 
   container.querySelectorAll('.sol-card').forEach(card => {
     const aprId = card.dataset.apr;

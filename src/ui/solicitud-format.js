@@ -86,6 +86,28 @@ export function resumen(sol, centrosMap, trabMap) {
   }
 }
 
+/**
+ * Descripción legible de una solicitud de INGRESO (nov. 2026, a pedido):
+ * se usa donde antes solo aparecía el código (candidatos que envía RRHH,
+ * tarjetas de Contratación), porque "SSI-RRHH-2026-0003" no dice de qué
+ * vacante se trata. Ej.: "Maestro Albañil · 2 vacantes · Obra 25 LIRAY ·
+ * ingreso desde el 15-11-2026". Devuelve HTML ya escapado.
+ */
+export function descripcionIngreso(sol, centrosMap) {
+  if (!sol) return 'solicitud de ingreso';
+  const d = sol.detalle || {};
+  const cant = Number(d.cantidad) || 1;
+  const c = centrosMap?.get(sol.centro_origen_id);
+  const nombreObra = c?.nombre ? String(c.nombre) : '';
+  const obra = c ? `Obra ${c.codigo ?? ''}${nombreObra ? ' ' + (nombreObra.length > 60 ? nombreObra.slice(0, 59) + '…' : nombreObra) : ''}`.trim() : '';
+  return [
+    escapeHtml(d.cargo || 'Cargo sin indicar'),
+    `${cant} vacante${cant === 1 ? '' : 's'}`,
+    obra ? escapeHtml(obra) : null,
+    d.fecha_ingreso ? `ingreso desde el ${escapeHtml(fechaCorta(d.fecha_ingreso))}` : null
+  ].filter(Boolean).join(' · ');
+}
+
 /** Pares [etiqueta, valor] del detalle (JSONB) según tipo. Base compartida de detalleHtml() y detalleTexto(). */
 export function detallePares(sol) {
   const d = sol.detalle || {};

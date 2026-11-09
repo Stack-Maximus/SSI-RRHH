@@ -7,7 +7,8 @@ import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen } from '../ui/solicitud-format.js';
+import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen, detalleHtml, descripcionIngreso } from '../ui/solicitud-format.js';
+import { tablaFilas, fila, wireFilas } from '../ui/filas.js';
 import { nombreCandidatoRecl } from '../ui/contratacion-format.js';
 import { renderComprobante } from './comprobante.js';
 import { TIPOS_SOLICITUD_POR_ROL } from '../config.js';
@@ -54,34 +55,35 @@ export async function renderMisSolicitudes(container) {
 
   const solMap = new Map(sols.map(s => [s.id, s]));
   const panelCandidatos = reclutPendientes.length
-    ? `<div class="recl-pendientes">${reclutPendientes.map(r => panelReclutamiento(r, solMap.get(r.solicitud_id))).join('')}</div>`
+    ? `<div class="recl-pendientes">${reclutPendientes.map(r => panelReclutamiento(r, solMap.get(r.solicitud_id), centrosMap)).join('')}</div>`
     : '';
 
+  // Nov. 2026: en filas (ver ui/filas.js) en vez de tarjetas.
   const cards = sols.map(s => {
     // El paso al que le toca decidir muestra hace cuánto espera (y habilita
     // el botón 🔔 Recordar, que le manda un correo a ese aprobador).
     const enTurno = new Set(aprobacionesEnTurno(s));
-    const steps = (s.aprobaciones || []).map(a =>
+    const aprs = s.aprobaciones || [];
+    const steps = aprs.map(a =>
       `<div class="sol-step ${enTurno.has(a) ? 'sol-step-turno' : ''}">Aprobador ${a.orden} ${decisionBadge(a.decision)}${enTurno.has(a) ? ' ' + esperaBadge(esperaDesde(s, a)) : ''}</div>`
     ).join('');
-    return `
-      <div class="sol-card" data-sol="${s.id}">
-        <div class="sol-card-top">
-          <span class="sol-id">${s.codigo || '—'}</span>
-          <span class="sol-tipo">${tipoLabel(s.tipo)}</span>
-          ${estadoBadge(s.estado)}
-        </div>
-        <div class="sol-resumen">${resumen(s, centrosMap, trabMap)}</div>
+    const aprobadas = aprs.filter(a => a.decision === 'aprobado').length;
+    const turno = [...enTurno][0];
+    return fila({
+      id: s.id,
+      codigo: escapeHtml(s.codigo || '—'),
+      tipo: tipoLabel(s.tipo),
+      descripcion: resumen(s, centrosMap, trabMap),
+      sub: `Creada el ${fechaCorta(s.created_at)}`,
+      estado: `${estadoBadge(s.estado)}${aprs.length ? `<span>${aprobadas}/${aprs.length} aprobación(es)</span>` : ''}${turno ? esperaBadge(esperaDesde(s, turno)) : ''}`,
+      acciones: `
+        ${enTurno.size ? `<button class="link-btn btn-recordar" data-recordar="${s.id}" title="Le enviamos un correo al aprobador al que le toca decidir">🔔 Recordar</button>` : ''}
+        ${puedeEditar(s) ? `<button class="link-btn" data-editar="${s.id}">✏️ Editar</button>` : ''}
+        <button class="link-btn" data-comprobante="${s.id}">📄 Comprobante</button>`,
+      detalle: `
         <div class="sol-steps">${steps || '<span class="muted">Sin aprobadores asignados</span>'}</div>
-        <div class="sol-foot">
-          <span class="muted">Creada el ${fechaCorta(s.created_at)}</span>
-          <span>
-            ${enTurno.size ? `<button class="link-btn btn-recordar" data-recordar="${s.id}" title="Le enviamos un correo al aprobador al que le toca decidir">🔔 Recordar al aprobador</button>` : ''}
-            ${puedeEditar(s) ? `<button class="link-btn" data-editar="${s.id}">✏️ Editar</button>` : ''}
-            <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>
-          </span>
-        </div>
-      </div>`;
+        ${detalleHtml(s)}`
+    });
   }).join('');
 
   container.innerHTML = `
@@ -90,9 +92,10 @@ export async function renderMisSolicitudes(container) {
       <span class="muted">${sols.length} solicitud(es)</span>
       <button class="btn btn-primary" id="ir-nueva">Nueva solicitud</button>
     </div>
-    <div class="sol-grid">${cards}</div>`;
+    ${tablaFilas(cards)}`;
 
   container.querySelector('#ir-nueva')?.addEventListener('click', () => window.Router.go('nueva-solicitud'));
+  wireFilas(container);
   container.querySelectorAll('[data-comprobante]').forEach(btn => {
     btn.addEventListener('click', () => renderComprobante(container, btn.dataset.comprobante, 'mis-solicitudes'));
   });
@@ -108,7 +111,7 @@ export async function renderMisSolicitudes(container) {
 
 /** Panel destacado: candidatos que RRHH envió para una solicitud de ingreso propia,
  * esperando que el solicitante elija uno o los rechace (ver migración 0018). */
-function panelReclutamiento(r, sol) {
+function panelReclutamiento(r, sol, centrosMap) {
   const cands = (r.candidatos || []).map(c => `
     <div class="cand-row" data-cand="${c.id}" data-recl="${r.id}">
       <div>
@@ -125,7 +128,7 @@ function panelReclutamiento(r, sol) {
 
   return `
     <div class="card recl-pendiente-card">
-      <h3>🧑‍💼 Candidatos para tu solicitud ${escapeHtml(sol?.codigo || '—')}</h3>
+      <h3>🧑‍💼 Candidatos para tu solicitud de ingreso: ${descripcionIngreso(sol, centrosMap)}</h3>
       <p class="hint">RRHH envió estos candidatos para la vacante. Revisa el CV de cada uno y elige uno, o recházalos si ninguno calza.</p>
       <div class="cand-list">${cands}</div>
     </div>`;

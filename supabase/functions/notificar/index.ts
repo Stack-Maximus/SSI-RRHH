@@ -261,8 +261,9 @@ Deno.serve(async (req) => {
         .from('reclutamientos').select('id, solicitud_id').eq('id', reclutamiento_id).single();
       if (!recl) return json({ error: 'Proceso de reclutamiento no encontrado.' }, 404);
       const { data: sol } = await admin
-        .from('solicitudes').select('id, codigo, folio, solicitante_id').eq('id', recl.solicitud_id).single();
+        .from('solicitudes').select('id, codigo, folio, solicitante_id, tipo, detalle, centro_origen_id').eq('id', recl.solicitud_id).single();
       if (!sol) return json({ error: 'La solicitud de este proceso ya no existe.' }, 404);
+      const desc = await descripcionIngreso(admin, sol);
       const { count: pendientes } = await admin
         .from('reclutamiento_candidatos').select('id', { count: 'exact', head: true })
         .eq('reclutamiento_id', reclutamiento_id).eq('decision', 'pendiente');
@@ -273,8 +274,8 @@ Deno.serve(async (req) => {
       }
       const token = await graphToken();
       await graphSend(token, s.email,
-        `Candidatos para tu solicitud ${sol.codigo}`,
-        correoReclutamientoOpciones(s.nombre ?? '', sol, pendientes ?? 0, appUrl));
+        `Candidatos para tu solicitud de ingreso: ${desc}`,
+        correoReclutamientoOpciones(s.nombre ?? '', sol, pendientes ?? 0, appUrl, desc));
       return json({ ok: true, enviados: 1 });
     }
 
@@ -284,8 +285,9 @@ Deno.serve(async (req) => {
         .from('reclutamientos').select('id, solicitud_id, contratacion_id').eq('id', reclutamiento_id).single();
       if (!recl) return json({ error: 'Proceso de reclutamiento no encontrado.' }, 404);
       const { data: sol } = await admin
-        .from('solicitudes').select('id, codigo, folio').eq('id', recl.solicitud_id).single();
+        .from('solicitudes').select('id, codigo, folio, tipo, detalle, centro_origen_id').eq('id', recl.solicitud_id).single();
       if (!sol) return json({ error: 'La solicitud de este proceso ya no existe.' }, 404);
+      const desc = await descripcionIngreso(admin, sol);
 
       const { data: rrhh } = await admin.from('perfiles').select('nombre, email').eq('rol', 'rrhh').eq('activo', true);
       const token = await graphToken();
@@ -301,16 +303,16 @@ Deno.serve(async (req) => {
         for (const r of rrhh ?? []) {
           if (!r.email) continue;
           await graphSend(token, r.email,
-            `Candidato elegido — solicitud ${sol.codigo}`,
-            correoReclutamientoElegido(r.nombre ?? '', sol, candidatoNombre, appUrl));
+            `Candidato elegido — ${desc}`,
+            correoReclutamientoElegido(r.nombre ?? '', sol, candidatoNombre, appUrl, desc));
           enviados++;
         }
       } else {
         for (const r of rrhh ?? []) {
           if (!r.email) continue;
           await graphSend(token, r.email,
-            `Se rechazaron todos los candidatos — solicitud ${sol.codigo}`,
-            correoReclutamientoTodosRechazados(r.nombre ?? '', sol, appUrl));
+            `Se rechazaron todos los candidatos — ${desc}`,
+            correoReclutamientoTodosRechazados(r.nombre ?? '', sol, appUrl, desc));
           enviados++;
         }
       }
@@ -710,28 +712,51 @@ function correoContratacionIniciada(nombre: string, contrat: any, sol: any, cent
 }
 
 /** Al solicitante: RRHH mandó una tanda de candidatos para que elija o rechace. */
-function correoReclutamientoOpciones(nombre: string, sol: any, cantidad: number, appUrl: string) {
+function correoReclutamientoOpciones(nombre: string, sol: any, cantidad: number, appUrl: string, desc = '') {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">RRHH envió ${cantidad} candidato${cantidad === 1 ? '' : 's'} para tu solicitud de ingreso. Revísalos y elige uno, o recházalos si ninguno calza.</p>
-    ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    <p style="margin:0">RRHH envió ${cantidad} candidato${cantidad === 1 ? '' : 's'} para tu solicitud de ingreso${desc ? ` <b>${escHtml(desc)}</b>` : ''}. Revísalos y elige uno, o recházalos si ninguno calza.</p>
+    ${infoCard([['Solicitud', desc ? escHtml(desc) : null], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
     ${boton(appUrl, 'Ver candidatos', 'mis-solicitudes')}`);
 }
 /** A RRHH: el solicitante eligió candidato -- ya se creó la contratación sola. */
-function correoReclutamientoElegido(nombre: string, sol: any, candidatoNombre: string, appUrl: string) {
+function correoReclutamientoElegido(nombre: string, sol: any, candidatoNombre: string, appUrl: string, desc = '') {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">El solicitante eligió a ${candidatoNombre ? `<b>${escHtml(candidatoNombre)}</b>` : 'un candidato'} para la solicitud ${sol.codigo}. Ya se creó la contratación -- continúa el proceso desde ahí.</p>
-    ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    <p style="margin:0">El solicitante eligió a ${candidatoNombre ? `<b>${escHtml(candidatoNombre)}</b>` : 'un candidato'} para la solicitud ${desc ? `<b>${escHtml(desc)}</b>` : sol.codigo}. Ya se creó la contratación -- continúa el proceso desde ahí.</p>
+    ${infoCard([['Solicitud', desc ? escHtml(desc) : null], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
     ${boton(appUrl, 'Ir a Contratación', 'contrataciones')}`);
 }
 /** A RRHH: el solicitante rechazó a todos los candidatos de la tanda vigente. */
-function correoReclutamientoTodosRechazados(nombre: string, sol: any, appUrl: string) {
+function correoReclutamientoTodosRechazados(nombre: string, sol: any, appUrl: string, desc = '') {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">El solicitante rechazó a todos los candidatos enviados para la solicitud ${sol.codigo}. Agrega una nueva tanda de candidatos desde Contratación: el plazo de reclutamiento (${DIAS_HABILES_RECLUTAMIENTO} días hábiles) vuelve a correr desde este rechazo.</p>
-    ${infoCard([['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
+    <p style="margin:0">El solicitante rechazó a todos los candidatos enviados para la solicitud ${desc ? `<b>${escHtml(desc)}</b>` : sol.codigo}. Agrega una nueva tanda de candidatos desde Contratación: el plazo de reclutamiento (${DIAS_HABILES_RECLUTAMIENTO} días hábiles) vuelve a correr desde este rechazo.</p>
+    ${infoCard([['Solicitud', desc ? escHtml(desc) : null], ['N° de solicitud', sol.codigo], ['Folio', sol.folio]])}
     ${boton(appUrl, 'Ir a Contratación', 'contrataciones')}`);
+}
+
+/**
+ * Descripción legible de una solicitud de ingreso (nov. 2026, a pedido: en
+ * los correos de candidatos, en vez del código). Texto plano, ej.:
+ * "Maestro Albañil · 2 vacantes · Obra 25 LIRAY · ingreso desde el 15-11-2026".
+ * Igual que descripcionIngreso() de src/ui/solicitud-format.js.
+ */
+async function descripcionIngreso(admin: any, sol: any): Promise<string> {
+  const d = sol?.detalle ?? {};
+  const cant = Number(d.cantidad) || 1;
+  let obra = '';
+  if (sol?.centro_origen_id) {
+    const { data: c } = await admin.from('centros_costo').select('codigo, nombre').eq('id', sol.centro_origen_id).maybeSingle();
+    if (c) {
+      const n = String(c.nombre ?? '');
+      obra = `Obra ${c.codigo ?? ''}${n ? ' ' + (n.length > 60 ? n.slice(0, 59) + '…' : n) : ''}`.trim();
+    }
+  }
+  const f = typeof d.fecha_ingreso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.fecha_ingreso)
+    ? d.fecha_ingreso.split('-').reverse().join('-') : '';
+  return [d.cargo || 'Cargo sin indicar', `${cant} vacante${cant === 1 ? '' : 's'}`, obra, f ? `ingreso desde el ${f}` : '']
+    .filter(Boolean).join(' · ');
 }
 
 // =====================================================================

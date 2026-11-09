@@ -9,7 +9,7 @@ import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { fechaCorta, resumen } from '../ui/solicitud-format.js';
+import { fechaCorta, resumen, descripcionIngreso } from '../ui/solicitud-format.js';
 import {
   estadoContratacionBadge, canalLabel, tipoTrabajadorLabel,
   estadoReclutamientoBadge, decisionCandidatoBadge, nombreCandidatoRecl
@@ -93,11 +93,10 @@ function cardSolicitud(s, contrataciones, centrosMap, perfiles, rechazosMap, rec
   return `
     <div class="sol-card" data-sol="${s.id}">
       <div class="sol-card-top">
-        <span class="sol-id">${s.codigo || '—'}</span>
         <span class="sol-tipo">➕ Ingreso</span>
       </div>
-      <div class="sol-resumen">${resumen(s, centrosMap, new Map())}</div>
-      <div class="sol-detalle muted">Solicitante: ${escapeHtml(solicitante)} · ${fechaCorta(s.created_at)} · ${contrataciones.length}/${cantidad} contratación(es) iniciada(s)</div>
+      <div class="sol-resumen">${descripcionIngreso(s, centrosMap)}</div>
+      <div class="sol-detalle muted">Solicitante: ${escapeHtml(solicitante)} · ${fechaCorta(s.created_at)} · ${contrataciones.length}/${cantidad} contratación(es) iniciada(s) · N° ${escapeHtml(s.codigo || '—')}</div>
       ${rows ? `<div class="contr-list">${rows}</div>` : ''}
       <button class="btn btn-secondary" data-iniciar="${s.id}">+ Iniciar contratación</button>
       <div class="form-card" data-form="${s.id}" hidden style="margin-top:4px;"></div>

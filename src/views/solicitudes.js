@@ -12,6 +12,7 @@ import { TIPO_SOLICITUD_META, MAESTRO_SOLICITUDES_CODIGO, DOCUMENTO_CODIGOS, TIP
 import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
 import { state } from '../core/state.js';
 import { renderComprobante } from './comprobante.js';
+import { tablaFilas, fila, alternarDetalle } from '../ui/filas.js';
 import { aprobacionesEnTurno, esperaDesde, esperaBadge, recordar } from '../ui/aprobacion-turno.js';
 import { nuevoLibroSgc, hojaSgc, descargarLibroSgc } from '../ui/xlsx-sgc.js';
 import { documentoMaestro, fechaHora, duracion } from '../../supabase/functions/_shared/sgc-documentos.js';
@@ -113,7 +114,7 @@ async function cargar(container, opts) {
 }
 
 function grid(list) {
-  return `<div class="sol-grid">${list.map(card).join('')}</div>`;
+  return tablaFilas(list.map(card).join(''));
 }
 
 function card(s) {
@@ -123,26 +124,22 @@ function card(s) {
   const enTurno = new Set(aprobacionesEnTurno(s));
   const steps = (s.aprobaciones || []).map(a =>
     `<div class="sol-step ${enTurno.has(a) ? 'sol-step-turno' : ''}">Aprobador ${a.orden} ${decisionBadge(a.decision)}${enTurno.has(a) ? ' ' + esperaBadge(esperaDesde(s, a)) : ''}</div>`).join('');
-  return `
-    <div class="sol-card" data-sol="${s.id}">
-      <div class="sol-card-top">
-        <span class="sol-id">${s.codigo || '—'}</span>
-        <span class="sol-tipo">${tipoLabel(s.tipo)}</span>
-        ${estadoBadge(s.estado)}
-        ${badgeRechazoTraslado(s)}
-      </div>
-      <div class="sol-resumen">${resumen(s, _centros, _trab)}</div>
-      <div class="sol-detalle muted">Solicitante: ${escapeHtml(solicitante)} · ${fechaCorta(s.created_at)} · ${aprob}/${total} aprobada(s)</div>
-      <button class="link-btn" data-toggle>Ver detalle ▾</button>
-      <div class="sol-expand" hidden>
-        ${detalleHtml(s)}
-        <div class="sol-steps" style="margin-top:10px;">${steps || '<span class="muted">Sin aprobadores</span>'}</div>
-        ${enTurno.size ? `<button class="link-btn btn-recordar" data-recordar="${s.id}" title="Correo personalizado al aprobador al que le toca decidir">🔔 Recordar al aprobador</button>` : ''}
-        ${s.motivo ? `<div class="sol-motivo">"${escapeHtml(s.motivo)}"</div>` : ''}
-        <button class="link-btn" data-comprobante="${s.id}">📄 Ver comprobante</button>
-        ${accionesRRHH(s)}
-      </div>
-    </div>`;
+  // Nov. 2026: en filas (ver ui/filas.js) en vez de tarjetas.
+  return fila({
+    id: s.id,
+    codigo: escapeHtml(s.codigo || '—'),
+    tipo: tipoLabel(s.tipo),
+    descripcion: resumen(s, _centros, _trab),
+    sub: `Solicitante: ${escapeHtml(solicitante)} · ${fechaCorta(s.created_at)}`,
+    estado: `${estadoBadge(s.estado)}${badgeRechazoTraslado(s)}<span>${aprob}/${total} aprobación(es)</span>`,
+    acciones: `<button class="link-btn" data-comprobante="${s.id}">📄 Comprobante</button>`,
+    detalle: `
+      ${detalleHtml(s)}
+      <div class="sol-steps">${steps || '<span class="muted">Sin aprobadores</span>'}</div>
+      ${enTurno.size ? `<button class="link-btn btn-recordar" data-recordar="${s.id}" title="Correo personalizado al aprobador al que le toca decidir">🔔 Recordar al aprobador</button>` : ''}
+      ${s.motivo ? `<div class="sol-motivo">"${escapeHtml(s.motivo)}"</div>` : ''}
+      ${accionesRRHH(s)}`
+  });
 }
 
 /**
@@ -234,8 +231,7 @@ function reRenderCard(s) {
   old.outerHTML = card(s);
   const fresh = document.querySelector(`.sol-card[data-sol="${s.id}"]`);
   if (!fresh) return;
-  fresh.querySelector('.sol-expand').hidden = false;
-  fresh.querySelector('[data-toggle]').textContent = 'Ocultar detalle ▴';
+  alternarDetalle(fresh.querySelector('[data-toggle]'), true);
   wireDetalles(_backView, fresh);
   wireAcciones(fresh);
 }
@@ -345,12 +341,7 @@ async function exportarMaestro() {
 
 function wireDetalles(backView, root = document) {
   root.querySelectorAll('[data-toggle]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const panel = btn.nextElementSibling;
-      const abierto = !panel.hidden;
-      panel.hidden = abierto;
-      btn.textContent = abierto ? 'Ver detalle ▾' : 'Ocultar detalle ▴';
-    });
+    btn.addEventListener('click', () => alternarDetalle(btn));
   });
   root.querySelectorAll('[data-comprobante]').forEach(btn => {
     btn.addEventListener('click', () => renderComprobante(_container, btn.dataset.comprobante, backView));

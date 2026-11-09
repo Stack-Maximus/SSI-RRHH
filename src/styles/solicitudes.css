@@ -72,6 +72,76 @@
 }
 .sol-acciones { display: flex; gap: 8px; }
 
+/* ---- Vista en FILAS (nov. 2026): Mis solicitudes, Bandeja, Solicitudes, Historial ----
+   Ver ui/filas.js. Cada .sol-card pasa a ser una fila de 4 columnas con su
+   detalle plegado debajo. Las demás vistas con tarjetas (Contratación,
+   Homologación, Perfil del trabajador) no usan .sol-filas y quedan igual. */
+.sol-filas {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.sol-filas-head,
+.sol-filas .sol-fila {
+  display: grid;
+  /* Anchos fijos (iguales en el encabezado y en cada fila) para que las
+     columnas queden alineadas; la descripción toma el resto. */
+  grid-template-columns: var(--col-id, 180px) minmax(0, 1fr) var(--col-estado, 210px) var(--col-acc, 260px);
+  column-gap: 16px;
+  align-items: center;
+}
+.sol-filas-head {
+  padding: 10px 16px;
+  background: var(--surface-2, #f6f8fb);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-m);
+}
+.sol-filas-head span:last-child { text-align: right; }
+.sol-filas.acc-anchas { --col-acc: 400px; }
+.sol-filas .sol-fila {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 12px 16px;
+  row-gap: 0;
+}
+.sol-filas .sol-fila:last-child { border-bottom: 0; }
+.sol-filas .sol-fila:hover { background: var(--surface-2, #f6f8fb); }
+.fila-id { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.fila-desc { min-width: 0; }
+.fila-desc .sol-resumen { font-size: 14px; overflow-wrap: anywhere; }
+.fila-sub { font-size: 12px; margin-top: 2px; }
+.fila-estado { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--text-m); }
+.fila-acc { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 14px; }
+.fila-acc .link-btn { align-self: center; white-space: nowrap; }
+.btn.btn-sm { padding: 6px 12px; font-size: 13px; line-height: 1.2; }
+.sol-filas .sol-fila .sol-expand {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-top: 0;
+  border-radius: var(--r);
+  background: var(--surface-2, #f6f8fb);
+  display: grid;
+  gap: 8px;
+}
+.sol-filas .sol-fila:hover .sol-expand { background: var(--surface); }
+@media (max-width: 860px) {
+  .sol-filas-head { display: none; }
+  .sol-filas .sol-fila { grid-template-columns: 1fr; row-gap: 8px; }
+  .fila-id { flex-direction: row; align-items: center; }
+  .fila-acc { justify-content: flex-start; }
+}
+
 /* Variantes que faltaban */
 .badge-danger { background: rgba(220, 38, 38, .12); color: #b91c1c; }
 

@@ -8,6 +8,7 @@
 // Uso (desde la carpeta del proyecto):
 //     node supabase\mantencion\sql.mjs <archivo.sql>             (REVISIÓN: corre y DESHACE)
 //     node supabase\mantencion\sql.mjs <archivo.sql> --aplicar   (corre y GUARDA)
+//     ... --guardar   (además deja lo que se muestra en <archivo>.resultado.log)
 //
 // - Todo el archivo va en UNA transacción: sin --aplicar termina en ROLLBACK
 //   (muestra cómo quedaría y no guarda nada); con --aplicar, en COMMIT. Si
@@ -23,6 +24,8 @@
 //   avisos (RAISE NOTICE).
 // - Solo archivos SQL "planos": sin comandos de psql (\set, \if...) ni
 //   begin/commit propios.
+// - Con --aplicar, al final avisa a la API de Supabase que recargue su caché
+//   de funciones y tablas (notify pgrst, 'reload schema').
 // - OJO: el ROLLBACK no deshace los cambios de numeración de secuencias
 //   (setval). Por eso 03_reiniciar_numeracion.sql se corre directo con --aplicar.
 // =====================================================================
@@ -32,6 +35,14 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const salir = (msg) => { console.error(msg); process.exit(1); };
+
+// --guardar: todo lo que se muestra queda también en <archivo>.resultado.log
+// (al lado del .sql; *.log está en .gitignore, no se sube a GitHub).
+const registro = [];
+for (const m of ['log', 'error']) {
+  const orig = console[m].bind(console);
+  console[m] = (...a) => { registro.push(a.join(' ')); orig(...a); };
+}
 
 let pg;
 try {
@@ -43,9 +54,10 @@ try {
 const args = process.argv.slice(2);
 const archivo = args.find((a) => !a.startsWith('--'));
 const aplicar = args.includes('--aplicar');
-const desconocidas = args.filter((a) => a.startsWith('--') && a !== '--aplicar');
+const guardar = args.includes('--guardar');
+const desconocidas = args.filter((a) => a.startsWith('--') && !['--aplicar', '--guardar'].includes(a));
 if (!archivo || desconocidas.length) {
-  salir('Uso: node supabase\\mantencion\\sql.mjs <archivo.sql> [--aplicar]');
+  salir('Uso: node supabase\\mantencion\\sql.mjs <archivo.sql> [--aplicar] [--guardar]');
 }
 if (!fs.existsSync(archivo)) salir(`No encuentro el archivo: ${archivo}`);
 const sql = fs.readFileSync(archivo, 'utf8').replace(/^﻿/, '');
@@ -141,6 +153,10 @@ try {
   }
   await client.query(aplicar ? 'commit' : 'rollback');
   ok = true;
+  // La API de Supabase (PostgREST) guarda en caché las funciones y tablas;
+  // si se creó o cambió alguna, sin esto la app puede seguir diciendo
+  // "Could not find the function ... in the schema cache".
+  if (aplicar) await client.query("notify pgrst, 'reload schema'").catch(() => {});
   console.log(`\n${linea}\n${aplicar ? '>>> CAMBIOS GUARDADOS.' : '>>> REVISIÓN: no se guardó nada. Si está bien, vuelve a correrlo agregando --aplicar'}\n${linea}`);
 } catch (e) {
   try { await client.query('rollback'); } catch { /* conexión caída */ }
@@ -150,5 +166,12 @@ try {
   console.error(`\n${linea}\nERROR: ${msg}\nNo se guardó nada.\n${linea}`);
 } finally {
   await client.end().catch(() => {});
+}
+if (guardar) {
+  const destino = archivo.replace(/\.sql$/i, '') + '.resultado.log';
+  try {
+    fs.writeFileSync(destino, registro.join('\n') + '\n', 'utf8');
+    console.log(`Resultado guardado en ${destino}`);
+  } catch (e) { console.error(`No se pudo guardar el resultado: ${e.message}`); }
 }
 process.exit(ok ? 0 : 1);

@@ -459,6 +459,12 @@ async function importar(file, container) {
   const iguales = items.filter(i => i.estado === 'sin_cambios');
   const aplicar = [...nuevos, ...modif];
   const conError = items.filter(i => i.codigoInvalido);
+  // Nov. 2026: antes se podía aplicar igual y esos trabajadores quedaban SIN
+  // obra (pasó al importar la dotación antes de crear los centros de costo);
+  // después no se les podía pedir ninguna solicitud. Ahora no se aplica nada
+  // hasta que todos los códigos existan.
+  const codigosMalos = [...new Set(conError.map(i => i.fila._codigo))].sort((a, b) => String(a).localeCompare(String(b), 'es', { numeric: true }));
+  const bloqueado = conError.length > 0;
   const conAvisoTipo = items.filter(i => i.tipoContratoInvalido);
 
   const badge = (e) => e === 'nuevo' ? '<span class="badge badge-success">Nuevo</span>'
@@ -481,6 +487,11 @@ async function importar(file, container) {
       ${conAvisoTipo.length ? `<span class="badge badge-danger">${conAvisoTipo.length} con tipo de contrato no reconocido</span>` : ''}
       ${conError.length ? `<span class="badge badge-danger">${conError.length} con código de centro inválido</span>` : ''}
     </div>
+    ${bloqueado ? `<div class="form-error" style="margin-top:12px;">
+      No se puede aplicar la carga: ${conError.length} trabajador(es) traen un código de centro de costo que no existe en el sistema
+      (${codigosMalos.map(c => `<b>${escapeHtml(String(c))}</b>`).join(', ')}). Si se cargaran así quedarían <b>sin obra</b> y no se les
+      podría pedir ninguna solicitud. Crea esos centros en <b>Centros de costo</b> (o corrige el código en la planilla) y vuelve a importar.
+    </div>` : ''}
     <div class="table-wrap" style="margin:12px 0;max-height:460px;overflow:auto;">
       <table class="data-table">
         <thead><tr><th>RUT</th><th>Nombre</th><th>Estado</th><th>Cambios</th></tr></thead>
@@ -489,7 +500,7 @@ async function importar(file, container) {
     </div>
     <div class="form-actions">
       <button class="btn btn-secondary" id="imp-cancel">Cancelar</button>
-      <button class="btn btn-primary" id="imp-aplicar" ${aplicar.length ? '' : 'disabled'}>
+      <button class="btn btn-primary" id="imp-aplicar" ${aplicar.length && !bloqueado ? '' : 'disabled'}>
         Aplicar ${aplicar.length} cambio(s)
       </button>
     </div>`;

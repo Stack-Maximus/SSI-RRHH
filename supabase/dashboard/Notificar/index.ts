@@ -7,6 +7,7 @@
 // Generado con: esbuild notificar/index.ts --bundle --format=esm --external:jsr:* --external:npm:*
 // =====================================================================
 
+
 // notificar/index.ts
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
@@ -120,8 +121,8 @@ function partirLineas(texto, medir, f, s, anchoMax) {
 function recortar(texto, medir, f, s, anchoMax) {
   let t = String(texto ?? "");
   if (medir(t, f, s) <= anchoMax) return t;
-  while (t.length > 1 && medir(t + "…", f, s) > anchoMax) t = t.slice(0, -1);
-  return t.trimEnd() + "…";
+  while (t.length > 1 && medir(t + "\u2026", f, s) > anchoMax) t = t.slice(0, -1);
+  return t.trimEnd() + "\u2026";
 }
 function fondoPagina(alto = ALTO) {
   return [
@@ -131,7 +132,7 @@ function fondoPagina(alto = ALTO) {
     { t: "path", d: poligono([[1398, 0], [1416, 0], [1416, 22]]), fill: PAL.blanco, op: 0.7 }
   ];
 }
-var SISTEMA_NOMBRE = "SISTEMA DE GESTIÓN DE CALIDAD";
+var SISTEMA_NOMBRE = "SISTEMA DE GESTI\xD3N DE CALIDAD";
 var SISTEMA_SIGLA = "SGC";
 function encabezado(o, medir, y0 = 45) {
   const p = [];
@@ -142,7 +143,7 @@ function encabezado(o, medir, y0 = 45) {
   sombra(p, 33, Y(45), 400, 255.5, 9);
   p.push({ t: "path", d: rectRed(33, Y(45), 400, 255.5, 9), fill: PAL.blanco, stroke: PAL.borde, sw: 1.2 });
   p.push({ t: "img", key: "logo", x: 59, y: Y(140), w: 293, h: 61.2 });
-  p.push({ t: "text", x: 353, y: Y(153), txt: "®", f: "f500", s: 23, c: "#0E1F5B" });
+  p.push({ t: "text", x: 353, y: Y(153), txt: "\xAE", f: "f500", s: 23, c: "#0E1F5B" });
   sombra(p, 948, Y(67), 436.5, 233.5, 10);
   p.push({ t: "path", d: rectRed(948, Y(67), 436.5, 233.5, 10), fill: PAL.blanco, stroke: PAL.borde, sw: 1.2 });
   const c0 = xNavy(45), c1 = xNavy(305);
@@ -177,9 +178,9 @@ function encabezado(o, medir, y0 = 45) {
   p.push({ t: "path", d: rectRed(xTxt, Y(271), 76, 7, 1.5), fill: PAL.amarilloBarra });
   p.push({ t: "text", x: 556, y: Y(282.3), txt: o.sigla || SISTEMA_SIGLA, f: "mBlack", s: 21.1, c: PAL.blanco });
   const filas = [
-    { icono: "file-text", et: "CÓDIGO", val: o.codigo, fuerte: true },
+    { icono: "file-text", et: "C\xD3DIGO", val: o.codigo, fuerte: true },
     { icono: "calendar-days", et: "FECHA", val: o.fecha },
-    { icono: "refresh-cw", et: "REVISIÓN", val: o.revision ?? "00" }
+    { icono: "refresh-cw", et: "REVISI\xD3N", val: o.revision ?? "00" }
   ];
   const centros = [107, 183.5, 260];
   const largo = filas.some((fi) => medir(String(fi.val ?? ""), "f700", 24) > 1370 - 1221);
@@ -191,7 +192,7 @@ function encabezado(o, medir, y0 = 45) {
     p.push({ t: "text", x: 1100.5, y: yc + 6.4, txt: fi.et, f: "f500", s: 18.6, c: PAL.etiquetaCard });
     p.push({ t: "path", d: linea(xSep, yc - 22, xSep, yc + 22), stroke: "#D5DFE9", sw: 1.6 });
     let sv = 24;
-    const val = String(fi.val ?? "—");
+    const val = String(fi.val ?? "\u2014");
     while (sv > 16 && medir(val, "f700", sv) > 1372 - xVal) sv -= 0.5;
     const v = recortar(val, medir, "f700", sv, 1372 - xVal);
     p.push({ t: "text", x: xVal, y: yc + sv * 0.34, txt: v, f: "f700", s: sv, c: fi.fuerte ? PAL.navy : PAL.valorCardSuave });
@@ -268,7 +269,7 @@ function medirFichas(campos, medir) {
   }
   return filas.map((fila) => {
     const anchoTxt = (fila.length === 1 && fila[0].ancho === "completo" ? FICHA.wFull : FICHA.w) - FICHA.txtX - 22;
-    const lineas = fila.map((c) => partirLineas(c.valor ?? "—", medir, "f700", FICHA.sVal, anchoTxt));
+    const lineas = fila.map((c) => partirLineas(c.valor ?? "\u2014", medir, "f700", FICHA.sVal, anchoTxt));
     const n = Math.max(...lineas.map((l) => l.length));
     return { fila, lineas, h: FICHA.h + (n - 1) * FICHA.lhVal };
   });
@@ -350,7 +351,7 @@ function encabezadoTabla(cols, y0, medir, tam = TABLA) {
 }
 function medirFila(cols, valores, medir, tam = TABLA) {
   const celdas = cols.map((c, i) => {
-    const v = valores[i] == null || valores[i] === "" ? "—" : String(valores[i]);
+    const v = valores[i] == null || valores[i] === "" ? "\u2014" : String(valores[i]);
     const f = c.estilo === "normal" ? "f400" : "f700";
     let s = f === "f400" ? tam.sReg : tam.sBold;
     const ancho = c.estilo === "pildora" ? c.w - 37 - 22 : c.w - (c.alinear === "centro" ? 16 : TABLA.pad + 14);
@@ -422,7 +423,7 @@ function pie(codigo, nombre, pagina, total, medir, alto = ALTO, conPagina = true
   tramo(codigo, "f400", PAL.pieTexto);
   tramo(" | ", "f400", PAL.pieSep);
   tramo(nombre, "f400", PAL.pieTexto);
-  if (conPagina) p.push({ t: "text", x: 1376, y: yb, txt: total > 1 ? `Página ${pagina} de ${total}` : `Página ${pagina}`, f: "f400", s, c: PAL.pieTexto, a: "end" });
+  if (conPagina) p.push({ t: "text", x: 1376, y: yb, txt: total > 1 ? `P\xE1gina ${pagina} de ${total}` : `P\xE1gina ${pagina}`, f: "f400", s, c: PAL.pieTexto, a: "end" });
   return p;
 }
 var Y_CONTENIDO = 332;
@@ -599,54 +600,54 @@ function fechaDMY(d, sep = "/") {
   return `${p.day}${sep}${p.month}${sep}${p.year}`;
 }
 function fechaHora(iso) {
-  if (!iso) return "—";
+  if (!iso) return "\u2014";
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
+  if (isNaN(d.getTime())) return "\u2014";
   const p = partes(d);
   return `${p.day}-${p.month}-${p.year} ${p.hour === "24" ? "00" : p.hour}:${p.minute}`;
 }
 function duracion(ms) {
-  if (ms == null || isNaN(ms)) return "—";
+  if (ms == null || isNaN(ms)) return "\u2014";
   const h = ms / 36e5;
   if (h < 1) return Math.max(1, Math.round(ms / 6e4)) + " min";
   if (h < 48) return (Math.round(h * 10) / 10).toString().replace(".", ",") + " h";
   return (Math.round(h / 24 * 10) / 10).toString().replace(".", ",") + " d";
 }
-var capital = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : "—";
+var capital = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : "\u2014";
 var dmyIso = (iso, sep = "-") => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
-  return m ? `${m[3]}${sep}${m[2]}${sep}${m[1]}` : iso || "—";
+  return m ? `${m[3]}${sep}${m[2]}${sep}${m[1]}` : iso || "\u2014";
 };
 var LARGOS = /^(motivo|modificaciones|observaciones|hito de la obra|nueva condición)$/i;
 function documentoComprobante(data, ref, hoy = /* @__PURE__ */ new Date()) {
   const { sol, cmap, aprs, pmap, trabNombre } = data;
   const tipoTxt2 = ref.tipoLabels[sol.tipo] ?? sol.tipo;
-  const codigo = ref.documentoCodigos[sol.tipo]?.codigo ?? "—";
+  const codigo = ref.documentoCodigos[sol.tipo]?.codigo ?? "\u2014";
   const nombre = `Comprobante de solicitud de ${tipoTxt2}`;
   const fecha = fechaDMY(hoy);
   const identificacion = [
     { etiqueta: "Registro", valor: `Solicitud de ${tipoTxt2}`, icono: "file-text" },
     { etiqueta: "Fecha del documento", valor: fecha, icono: "calendar-days" },
-    { etiqueta: "Código", valor: codigo, icono: "barcode" },
-    { etiqueta: "Revisión", valor: "00", icono: "settings" },
-    { etiqueta: "Folio", valor: sol.folio || "—", icono: "hash" },
+    { etiqueta: "C\xF3digo", valor: codigo, icono: "barcode" },
+    { etiqueta: "Revisi\xF3n", valor: "00", icono: "settings" },
+    { etiqueta: "Folio", valor: sol.folio || "\u2014", icono: "hash" },
     { etiqueta: "Estado", valor: capital(String(sol.estado ?? "")), icono: "circle-check" },
-    { etiqueta: "N° de solicitud", valor: sol.codigo || "—", icono: "clipboard-list" },
-    { etiqueta: "Fecha de creación", valor: fechaHora(sol.created_at), icono: "calendar-clock" }
+    { etiqueta: "N\xB0 de solicitud", valor: sol.codigo || "\u2014", icono: "clipboard-list" },
+    { etiqueta: "Fecha de creaci\xF3n", valor: fechaHora(sol.created_at), icono: "calendar-clock" }
   ];
   const sol_p = pmap.get(sol.solicitante_id);
   const detalle = [
-    { etiqueta: "Solicitante", valor: sol_p?.nombre ? sol_p.email ? `${sol_p.nombre} · ${sol_p.email}` : sol_p.nombre : "—", icono: "user" }
+    { etiqueta: "Solicitante", valor: sol_p?.nombre ? sol_p.email ? `${sol_p.nombre} \xB7 ${sol_p.email}` : sol_p.nombre : "\u2014", icono: "user" }
   ];
   if (sol.tipo === "traslado") {
-    detalle.push({ etiqueta: "Trabajador", valor: trabNombre ?? "—", icono: "hard-hat" });
-    detalle.push({ etiqueta: "Obra origen", valor: cmap.get(sol.centro_origen_id)?.nombre ?? "—", icono: "building-2" });
-    detalle.push({ etiqueta: "Obra destino", valor: cmap.get(sol.centro_destino_id)?.nombre ?? "—", icono: "building-2" });
+    detalle.push({ etiqueta: "Trabajador", valor: trabNombre ?? "\u2014", icono: "hard-hat" });
+    detalle.push({ etiqueta: "Obra origen", valor: cmap.get(sol.centro_origen_id)?.nombre ?? "\u2014", icono: "building-2" });
+    detalle.push({ etiqueta: "Obra destino", valor: cmap.get(sol.centro_destino_id)?.nombre ?? "\u2014", icono: "building-2" });
   } else if (sol.tipo === "ingreso") {
-    detalle.push({ etiqueta: "Centro de costo", valor: cmap.get(sol.centro_origen_id)?.nombre ?? "—", icono: "building-2" });
+    detalle.push({ etiqueta: "Centro de costo", valor: cmap.get(sol.centro_origen_id)?.nombre ?? "\u2014", icono: "building-2" });
   } else {
-    detalle.push({ etiqueta: "Trabajador", valor: trabNombre ?? "—", icono: "hard-hat" });
-    detalle.push({ etiqueta: "Centro de costo", valor: cmap.get(sol.centro_origen_id)?.nombre ?? "—", icono: "building-2" });
+    detalle.push({ etiqueta: "Trabajador", valor: trabNombre ?? "\u2014", icono: "hard-hat" });
+    detalle.push({ etiqueta: "Centro de costo", valor: cmap.get(sol.centro_origen_id)?.nombre ?? "\u2014", icono: "building-2" });
   }
   for (const [k, v] of ref.detalleLineas(sol)) {
     const valor = /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? dmyIso(String(v)) : v;
@@ -659,10 +660,10 @@ function documentoComprobante(data, ref, hoy = /* @__PURE__ */ new Date()) {
     const ms = a.tiempo_respuesta != null ? a.tiempo_respuesta * 1e3 : a.decidido_at && a.asignado_at ? new Date(a.decidido_at).getTime() - new Date(a.asignado_at).getTime() : null;
     return [
       String(a.orden),
-      pmap.get(a.aprobador_id)?.nombre ?? "—",
+      pmap.get(a.aprobador_id)?.nombre ?? "\u2014",
       capital(String(a.decision ?? "pendiente")),
       fechaHora(a.asignado_at),
-      a.decidido_at ? fechaHora(a.decidido_at) : "—",
+      a.decidido_at ? fechaHora(a.decidido_at) : "\u2014",
       duracion(ms)
     ];
   });
@@ -670,13 +671,13 @@ function documentoComprobante(data, ref, hoy = /* @__PURE__ */ new Date()) {
     encabezado: { titulo: nombre, codigo, fecha, revision: "00" },
     pie: { codigo, nombre },
     secciones: [
-      { titulo: "Identificación del registro", fichas: identificacion },
+      { titulo: "Identificaci\xF3n del registro", fichas: identificacion },
       { titulo: "Detalle del registro", fichas: [...cortas, ...largas] },
       { titulo: "Aprobaciones", tabla: {
         columnas: [
-          { titulo: "N°", w: 80, alinear: "centro", estilo: "numero" },
+          { titulo: "N\xB0", w: 80, alinear: "centro", estilo: "numero" },
           { titulo: "Aprobador", icono: "user-check", w: 330, estilo: "fuerte" },
-          { titulo: "Decisión", icono: "circle-check", w: 190, estilo: "pildora" },
+          { titulo: "Decisi\xF3n", icono: "circle-check", w: 190, estilo: "pildora" },
           { titulo: "Asignado", icono: "calendar-clock", w: 235, alinear: "centro", estilo: "normal" },
           { titulo: "Decidido", icono: "calendar-days", w: 235, alinear: "centro", estilo: "normal" },
           { titulo: "Tiempo de respuesta", icono: "timer", w: 272, alinear: "centro", estilo: "normal" }
@@ -880,8 +881,8 @@ var TIPO_LABELS = {
   bono: "Bono",
   cambio_cargo: "Cambio de cargo",
   cambio_turno: "Cambio de turno",
-  renovacion: "Renovación",
-  desvinculacion: "Desvinculación"
+  renovacion: "Renovaci\xF3n",
+  desvinculacion: "Desvinculaci\xF3n"
 };
 function tipoTxt(t) {
   return (TIPO_LABELS[t] ?? t ?? "").toLowerCase();
@@ -904,7 +905,7 @@ var TIPO_RENOVACION_LABELS = {
 };
 function pesos(n) {
   const v = Number(n);
-  if (isNaN(v)) return String(n ?? "—");
+  if (isNaN(v)) return String(n ?? "\u2014");
   return "$ " + v.toLocaleString("es-CL");
 }
 function detalleLineas(sol) {
@@ -915,11 +916,11 @@ function detalleLineas(sol) {
       pares = [
         ["Cargo", d.cargo],
         ["Cantidad", d.cantidad],
-        ["Sueldo líquido pactado", d.sueldo_liquido != null ? pesos(d.sueldo_liquido) : null],
+        ["Sueldo l\xEDquido pactado", d.sueldo_liquido != null ? pesos(d.sueldo_liquido) : null],
         ["Tipo de contrato", d.tipo_contrato],
         ["Plazo", d.plazo],
         ["Turno", d.turno],
-        ["Horario de colación", d.colacion],
+        ["Horario de colaci\xF3n", d.colacion],
         ["Horario", d.horario],
         ["Fecha de ingreso", d.fecha_ingreso],
         ["Cliente", d.cliente]
@@ -932,17 +933,17 @@ function detalleLineas(sol) {
         ["Modificaciones", d.modificaciones_contractuales],
         ["Turno", d.turno],
         ["Horario", d.horario],
-        ["Sueldo líquido actual", d.sueldo_liquido_actual != null ? pesos(d.sueldo_liquido_actual) : null],
-        ["Nuevo sueldo líquido", d.nuevo_sueldo_liquido != null ? pesos(d.nuevo_sueldo_liquido) : null],
-        ["Bono nocturno", !d.bono_nocturno ? null : d.bono_nocturno.aplica ? `Sí (${d.bono_nocturno.porcentaje ?? "—"} · ${d.bono_nocturno.periodo ?? "—"})` : "No"],
-        ["Bono trato", !d.bono_trato ? null : d.bono_trato.aplica ? `Sí (${d.bono_trato.monto != null ? pesos(d.bono_trato.monto) : "—"} · ${d.bono_trato.dias_asignacion ?? "—"} días)` : "No"]
+        ["Sueldo l\xEDquido actual", d.sueldo_liquido_actual != null ? pesos(d.sueldo_liquido_actual) : null],
+        ["Nuevo sueldo l\xEDquido", d.nuevo_sueldo_liquido != null ? pesos(d.nuevo_sueldo_liquido) : null],
+        ["Bono nocturno", !d.bono_nocturno ? null : d.bono_nocturno.aplica ? `S\xED (${d.bono_nocturno.porcentaje ?? "\u2014"} \xB7 ${d.bono_nocturno.periodo ?? "\u2014"})` : "No"],
+        ["Bono trato", !d.bono_trato ? null : d.bono_trato.aplica ? `S\xED (${d.bono_trato.monto != null ? pesos(d.bono_trato.monto) : "\u2014"} \xB7 ${d.bono_trato.dias_asignacion ?? "\u2014"} d\xEDas)` : "No"]
       ];
       break;
     case "aumento_sueldo":
       pares = [
         ["Monto del aumento", d.monto_aumento != null ? pesos(d.monto_aumento) : null],
-        ["Sueldo líquido actual", d.sueldo_actual != null ? pesos(d.sueldo_actual) : null],
-        ["Nuevo sueldo líquido", d.sueldo_nuevo != null ? pesos(d.sueldo_nuevo) : null],
+        ["Sueldo l\xEDquido actual", d.sueldo_actual != null ? pesos(d.sueldo_actual) : null],
+        ["Nuevo sueldo l\xEDquido", d.sueldo_nuevo != null ? pesos(d.sueldo_nuevo) : null],
         ["Fecha efectiva", d.fecha_efectiva],
         ["Motivo", d.motivo]
       ];
@@ -951,7 +952,7 @@ function detalleLineas(sol) {
       pares = [
         ["Tipo de bono", d.tipo_bono],
         ["Monto", d.monto != null ? pesos(d.monto) : null],
-        ["Período / fecha", d.periodo],
+        ["Per\xEDodo / fecha", d.periodo],
         ["Motivo", d.motivo]
       ];
       break;
@@ -969,16 +970,16 @@ function detalleLineas(sol) {
     case "renovacion":
       pares = d.tipo_renovacion ? [
         ["Tipo de contrato actual", d.tipo_contrato_actual],
-        ["Fecha de término actual", d.fecha_termino_actual],
-        ["Tipo de renovación", TIPO_RENOVACION_LABELS[d.tipo_renovacion] ?? d.tipo_renovacion],
-        ["Fecha de culminación", d.tipo_renovacion === "plazo" ? d.nueva_fecha_termino : null],
+        ["Fecha de t\xE9rmino actual", d.fecha_termino_actual],
+        ["Tipo de renovaci\xF3n", TIPO_RENOVACION_LABELS[d.tipo_renovacion] ?? d.tipo_renovacion],
+        ["Fecha de culminaci\xF3n", d.tipo_renovacion === "plazo" ? d.nueva_fecha_termino : null],
         ["Hito de la obra", d.tipo_renovacion === "obra_faena" ? d.hito_obra : null],
         ["Motivo", d.motivo]
       ] : [
         // renovaciones anteriores a oct. 2026 (sin tipo_renovacion)
-        ["Fecha de término actual", d.fecha_termino_actual],
-        ["Nueva condición", d.indefinido ? "Pasa a indefinido (sin fecha de término)" : null],
-        ["Nueva fecha de término", d.indefinido ? null : d.nueva_fecha_termino],
+        ["Fecha de t\xE9rmino actual", d.fecha_termino_actual],
+        ["Nueva condici\xF3n", d.indefinido ? "Pasa a indefinido (sin fecha de t\xE9rmino)" : null],
+        ["Nueva fecha de t\xE9rmino", d.indefinido ? null : d.nueva_fecha_termino],
         ["Nuevo plazo", d.indefinido ? null : d.nuevo_plazo],
         ["Motivo", d.motivo]
       ];
@@ -986,7 +987,7 @@ function detalleLineas(sol) {
     case "desvinculacion":
       pares = [
         ["Causal", d.causal],
-        ["Fecha de desvinculación", d.fecha_desvinculacion],
+        ["Fecha de desvinculaci\xF3n", d.fecha_desvinculacion],
         ["Documento adjunto", d.adjunto?.nombre || (d.adjunto?.path ? "Documento adjunto" : null)],
         ["Observaciones", d.observaciones]
       ];
@@ -1137,9 +1138,9 @@ Deno.serve(async (req) => {
     if (type === "contratacion_iniciada") {
       if (!contratacion_id) return json({ error: "Falta contratacion_id." }, 400);
       const { data: contrat, error: cErr } = await admin.from("contrataciones").select("id, solicitud_id, nombre_candidato, canal, tipo_trabajador").eq("id", contratacion_id).single();
-      if (cErr || !contrat) return json({ error: "Contratación no encontrada." }, 404);
+      if (cErr || !contrat) return json({ error: "Contrataci\xF3n no encontrada." }, 404);
       const { data: solIngreso } = await admin.from("solicitudes").select("id, codigo, folio, centro_origen_id, detalle").eq("id", contrat.solicitud_id).single();
-      if (!solIngreso) return json({ error: "La solicitud de esta contratación ya no existe." }, 404);
+      if (!solIngreso) return json({ error: "La solicitud de esta contrataci\xF3n ya no existe." }, 404);
       const { data: centro } = await admin.from("centros_costo").select("id, codigo, nombre, prevencionista_id").eq("id", solIngreso.centro_origen_id).single();
       if (!centro?.prevencionista_id) {
         return json({ ok: true, skipped: true, reason: "centro sin prevencionista asignado" });
@@ -1152,7 +1153,7 @@ Deno.serve(async (req) => {
       await graphSend(
         token,
         prev.email,
-        `Nueva contratación para homologar — ${contrat.nombre_candidato}`,
+        `Nueva contrataci\xF3n para homologar \u2014 ${contrat.nombre_candidato}`,
         correoContratacionIniciada(prev.nombre ?? "", contrat, solIngreso, centro, appUrl)
       );
       return json({ ok: true, enviados: 1 });
@@ -1172,14 +1173,14 @@ Deno.serve(async (req) => {
         await graphSend(
           token,
           s.email,
-          `RRHH ya procesó tu solicitud ${sol2.codigo}`,
+          `RRHH ya proces\xF3 tu solicitud ${sol2.codigo}`,
           correoRrhhCerrado(s.nombre ?? "", sol2, nombre, appUrl)
         );
       } else {
         await graphSend(
           token,
           s.email,
-          `${nombre || "El trabajador"} ya puede ingresar a la obra — solicitud ${sol2.codigo}`,
+          `${nombre || "El trabajador"} ya puede ingresar a la obra \u2014 solicitud ${sol2.codigo}`,
           correoHomologacionAutorizada(s.nombre ?? "", sol2, nombre, appUrl)
         );
       }
@@ -1195,7 +1196,7 @@ Deno.serve(async (req) => {
       ultimoQ = contratacion_id ? ultimoQ.eq("contratacion_id", contratacion_id) : ultimoQ.eq("solicitud_id", solicitud_id);
       const { data: ultimoArr } = await ultimoQ;
       const ultimo = ultimoArr?.[0];
-      if (!ultimo) return json({ error: "No se encontró el rechazo." }, 404);
+      if (!ultimo) return json({ error: "No se encontr\xF3 el rechazo." }, 404);
       let countQ = admin.from("homologacion_rechazos").select("id", { count: "exact", head: true });
       countQ = contratacion_id ? countQ.eq("contratacion_id", contratacion_id) : countQ.eq("solicitud_id", solicitud_id);
       const { count: totalRechazos } = await countQ;
@@ -1213,7 +1214,7 @@ Deno.serve(async (req) => {
         await graphSend(
           token,
           solicitante.email,
-          `Se rechazó la homologación de tu solicitud ${sol2.codigo}`,
+          `Se rechaz\xF3 la homologaci\xF3n de tu solicitud ${sol2.codigo}`,
           correoHomologacionRechazada(solicitante.nombre ?? "", sol2, nombre, ultimo, totalRechazos ?? 1, appUrl)
         );
         enviados++;
@@ -1224,7 +1225,7 @@ Deno.serve(async (req) => {
         await graphSend(
           token,
           g.email,
-          `Rechazo de homologación — solicitud ${sol2.codigo}`,
+          `Rechazo de homologaci\xF3n \u2014 solicitud ${sol2.codigo}`,
           correoHomologacionRechazadaGerente(g.nombre ?? "", sol2, nombre, ultimo, rechazadoPor?.nombre ?? "", nombresDocs, totalRechazos ?? 1, appUrl)
         );
         enviados++;
@@ -1236,7 +1237,7 @@ Deno.serve(async (req) => {
           await graphSend(
             token,
             r.email,
-            `Revisar documento(s) — homologación rechazada, solicitud ${sol2.codigo}`,
+            `Revisar documento(s) \u2014 homologaci\xF3n rechazada, solicitud ${sol2.codigo}`,
             correoHomologacionRechazadaRRHH(r.nombre ?? "", sol2, nombre, ultimo, nombresDocs, appUrl)
           );
           enviados++;
@@ -1248,8 +1249,9 @@ Deno.serve(async (req) => {
       if (!reclutamiento_id) return json({ error: "Falta reclutamiento_id." }, 400);
       const { data: recl } = await admin.from("reclutamientos").select("id, solicitud_id").eq("id", reclutamiento_id).single();
       if (!recl) return json({ error: "Proceso de reclutamiento no encontrado." }, 404);
-      const { data: sol2 } = await admin.from("solicitudes").select("id, codigo, folio, solicitante_id").eq("id", recl.solicitud_id).single();
+      const { data: sol2 } = await admin.from("solicitudes").select("id, codigo, folio, solicitante_id, tipo, detalle, centro_origen_id").eq("id", recl.solicitud_id).single();
       if (!sol2) return json({ error: "La solicitud de este proceso ya no existe." }, 404);
+      const desc = await descripcionIngreso(admin, sol2);
       const { count: pendientes } = await admin.from("reclutamiento_candidatos").select("id", { count: "exact", head: true }).eq("reclutamiento_id", reclutamiento_id).eq("decision", "pendiente");
       const { data: s } = await admin.from("perfiles").select("nombre, email, activo").eq("id", sol2.solicitante_id).single();
       if (!s?.email || s.activo === false) {
@@ -1259,8 +1261,8 @@ Deno.serve(async (req) => {
       await graphSend(
         token,
         s.email,
-        `Candidatos para tu solicitud ${sol2.codigo}`,
-        correoReclutamientoOpciones(s.nombre ?? "", sol2, pendientes ?? 0, appUrl)
+        `Candidatos para tu solicitud de ingreso: ${desc}`,
+        correoReclutamientoOpciones(s.nombre ?? "", sol2, pendientes ?? 0, appUrl, desc)
       );
       return json({ ok: true, enviados: 1 });
     }
@@ -1268,8 +1270,9 @@ Deno.serve(async (req) => {
       if (!reclutamiento_id) return json({ error: "Falta reclutamiento_id." }, 400);
       const { data: recl } = await admin.from("reclutamientos").select("id, solicitud_id, contratacion_id").eq("id", reclutamiento_id).single();
       if (!recl) return json({ error: "Proceso de reclutamiento no encontrado." }, 404);
-      const { data: sol2 } = await admin.from("solicitudes").select("id, codigo, folio").eq("id", recl.solicitud_id).single();
+      const { data: sol2 } = await admin.from("solicitudes").select("id, codigo, folio, tipo, detalle, centro_origen_id").eq("id", recl.solicitud_id).single();
       if (!sol2) return json({ error: "La solicitud de este proceso ya no existe." }, 404);
+      const desc = await descripcionIngreso(admin, sol2);
       const { data: rrhh } = await admin.from("perfiles").select("nombre, email").eq("rol", "rrhh").eq("activo", true);
       const token = await graphToken();
       let enviados = 0;
@@ -1284,8 +1287,8 @@ Deno.serve(async (req) => {
           await graphSend(
             token,
             r.email,
-            `Candidato elegido — solicitud ${sol2.codigo}`,
-            correoReclutamientoElegido(r.nombre ?? "", sol2, candidatoNombre, appUrl)
+            `Candidato elegido \u2014 ${desc}`,
+            correoReclutamientoElegido(r.nombre ?? "", sol2, candidatoNombre, appUrl, desc)
           );
           enviados++;
         }
@@ -1295,8 +1298,8 @@ Deno.serve(async (req) => {
           await graphSend(
             token,
             r.email,
-            `Se rechazaron todos los candidatos — solicitud ${sol2.codigo}`,
-            correoReclutamientoTodosRechazados(r.nombre ?? "", sol2, appUrl)
+            `Se rechazaron todos los candidatos \u2014 ${desc}`,
+            correoReclutamientoTodosRechazados(r.nombre ?? "", sol2, appUrl, desc)
           );
           enviados++;
         }
@@ -1326,7 +1329,7 @@ Deno.serve(async (req) => {
         await graphSend(
           token,
           p.email,
-          `Solicitud ${sol.codigo} pendiente de tu aprobación`,
+          `Solicitud ${sol.codigo} pendiente de tu aprobaci\xF3n`,
           correoPendiente(p.nombre ?? "", sol, appUrl)
         );
         enviados++;
@@ -1377,7 +1380,7 @@ Deno.serve(async (req) => {
         await graphSend(
           token,
           email,
-          `Solicitud ${sol.codigo} aprobada — respaldo`,
+          `Solicitud ${sol.codigo} aprobada \u2014 respaldo`,
           correoAprobada(nombre, sol, appUrl),
           adjuntos
         );
@@ -1471,14 +1474,14 @@ function shell(inner) {
       <tr><td style="height:6px;line-height:6px;font-size:0;background:${AZUL};border-radius:10px 10px 0 0">&nbsp;</td></tr>
       <tr><td style="padding:26px 32px 16px">
         <img src="cid:metalium-logo" width="140" height="29" alt="Metalium" style="display:block;width:140px;height:29px;border:0" />
-        <div style="margin-top:12px;font-size:11px;font-weight:700;letter-spacing:1px;color:${GRIS_ETIQUETA};text-transform:uppercase">Sistema de Gestión Integrado</div>
+        <div style="margin-top:12px;font-size:11px;font-weight:700;letter-spacing:1px;color:${GRIS_ETIQUETA};text-transform:uppercase">Sistema de Gesti\xF3n Integrado</div>
       </td></tr>
       <tr><td style="padding:0 32px"><div style="border-top:1px solid #edf0f4"></div></td></tr>
       <tr><td style="padding:22px 32px 4px;color:${GRIS_TEXTO};font-size:14.5px;line-height:1.6">${inner}</td></tr>
       <tr><td style="padding:22px 32px 28px">
         <div style="border-top:1px solid #edf0f4;padding-top:16px;font-size:11.5px;color:#9aa2b3;line-height:1.6">
-          Metalium SpA · Solicitud de Servicio Interno Recursos Humanos - Homologación (SSI-RRHH-SST).<br/>
-          Este es un correo automático -- no hace falta responderlo.
+          Metalium SpA \xB7 Solicitud de Servicio Interno Recursos Humanos - Homologaci\xF3n (SSI-RRHH-SST).<br/>
+          Este es un correo autom\xE1tico -- no hace falta responderlo.
         </div>
       </td></tr>
     </table>
@@ -1519,88 +1522,88 @@ var ROJO_FG = "#b91c1c";
 function correoPendiente(nombre, sol, appUrl) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">Tienes una solicitud pendiente de tu aprobación.</p>
-    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N° de solicitud", sol.codigo], ["Folio", sol.folio]])}
+    <p style="margin:0">Tienes una solicitud pendiente de tu aprobaci\xF3n.</p>
+    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N\xB0 de solicitud", sol.codigo], ["Folio", sol.folio]])}
     ${boton(appUrl, "Ir a mi bandeja", "bandeja")}`);
 }
 function correoEstado(nombre, sol, appUrl) {
   const aprobada = sol.estado === "aprobada";
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">Tu solicitud quedó ${badge(aprobada ? "Aprobada" : "Rechazada", aprobada ? VERDE_BG : ROJO_BG, aprobada ? VERDE_FG : ROJO_FG)}.</p>
-    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N° de solicitud", sol.codigo], ["Folio", sol.folio]])}
+    <p style="margin:0">Tu solicitud qued\xF3 ${badge(aprobada ? "Aprobada" : "Rechazada", aprobada ? VERDE_BG : ROJO_BG, aprobada ? VERDE_FG : ROJO_FG)}.</p>
+    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N\xB0 de solicitud", sol.codigo], ["Folio", sol.folio]])}
     ${boton(appUrl, "Ver mis solicitudes", "mis-solicitudes")}`);
 }
 function correoAprobada(nombre, sol, appUrl) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">La solicitud quedó ${badge("Aprobada", VERDE_BG, VERDE_FG)}. Adjuntamos el comprobante en PDF con el detalle de lo aprobado.</p>
-    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N° de solicitud", sol.codigo], ["Folio", sol.folio]])}
+    <p style="margin:0">La solicitud qued\xF3 ${badge("Aprobada", VERDE_BG, VERDE_FG)}. Adjuntamos el comprobante en PDF con el detalle de lo aprobado.</p>
+    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N\xB0 de solicitud", sol.codigo], ["Folio", sol.folio]])}
     ${boton(appUrl, "Ir a SSI-RRHH")}`);
 }
 function correoRrhhCerrado(nombre, sol, nombreEspecifico, appUrl) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">RRHH ya terminó de procesar tu solicitud${nombreEspecifico ? ` de <b>${nombreEspecifico}</b>` : ""}.</p>
-    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N° de solicitud", sol.codigo], ["Folio", sol.folio]])}
+    <p style="margin:0">RRHH ya termin\xF3 de procesar tu solicitud${nombreEspecifico ? ` de <b>${nombreEspecifico}</b>` : ""}.</p>
+    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N\xB0 de solicitud", sol.codigo], ["Folio", sol.folio]])}
     ${boton(appUrl, "Ver mis solicitudes", "mis-solicitudes")}`);
 }
 function correoHomologacionAutorizada(nombre, sol, nombreEspecifico, appUrl) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">El proceso de homologación de tu solicitud terminó: ${nombreEspecifico ? `<b>${nombreEspecifico}</b>` : "el trabajador"} ya está autorizado para ingresar a la obra.</p>
-    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N° de solicitud", sol.codigo], ["Folio", sol.folio]])}
+    <p style="margin:0">El proceso de homologaci\xF3n de tu solicitud termin\xF3: ${nombreEspecifico ? `<b>${nombreEspecifico}</b>` : "el trabajador"} ya est\xE1 autorizado para ingresar a la obra.</p>
+    ${infoCard([["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())], ["N\xB0 de solicitud", sol.codigo], ["Folio", sol.folio]])}
     ${boton(appUrl, "Ver mis solicitudes", "mis-solicitudes")}`);
 }
 function correoHomologacionRechazada(nombre, sol, nombreEspecifico, rechazo, totalRechazos, appUrl) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">Prevención rechazó la homologación de tu solicitud${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ""}: ${badge("Rechazada", ROJO_BG, ROJO_FG)}</p>
+    <p style="margin:0">Prevenci\xF3n rechaz\xF3 la homologaci\xF3n de tu solicitud${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ""}: ${badge("Rechazada", ROJO_BG, ROJO_FG)}</p>
     <p style="margin:12px 0 0"><b>Motivo:</b> ${escHtml(rechazo.motivo)}</p>
     ${infoCard([
     ["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())],
-    ["N° de solicitud", sol.codigo],
+    ["N\xB0 de solicitud", sol.codigo],
     ["Folio", sol.folio],
-    ["N° de rechazos", String(totalRechazos)]
+    ["N\xB0 de rechazos", String(totalRechazos)]
   ])}
-    <p style="margin:12px 0 0;font-size:13px;color:${GRIS_ETIQUETA}">El plazo de homologación de este caso se extiende automáticamente por cada rechazo.</p>
+    <p style="margin:12px 0 0;font-size:13px;color:${GRIS_ETIQUETA}">El plazo de homologaci\xF3n de este caso se extiende autom\xE1ticamente por cada rechazo.</p>
     ${boton(appUrl, "Ver mis solicitudes", "mis-solicitudes")}`);
 }
 function correoHomologacionRechazadaGerente(nombre, sol, nombreEspecifico, rechazo, rechazadoPorNombre, nombresDocs, totalRechazos, appUrl) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">${escHtml(rechazadoPorNombre) || "Un prevencionista"} rechazó una homologación${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ""}.</p>
+    <p style="margin:0">${escHtml(rechazadoPorNombre) || "Un prevencionista"} rechaz\xF3 una homologaci\xF3n${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ""}.</p>
     <p style="margin:12px 0 0"><b>Motivo:</b> ${escHtml(rechazo.motivo)}</p>
     ${infoCard([
     ["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())],
-    ["N° de solicitud", sol.codigo],
+    ["N\xB0 de solicitud", sol.codigo],
     ["Folio", sol.folio],
     ["Documento(s) marcado(s)", nombresDocs.length ? nombresDocs.map((n) => escHtml(n)).join(", ") : "Ninguno"],
-    ["N° de rechazos de este caso", String(totalRechazos)]
+    ["N\xB0 de rechazos de este caso", String(totalRechazos)]
   ])}
-    ${boton(appUrl, "Ir a Homologación SST", "homologacion")}`);
+    ${boton(appUrl, "Ir a Homologaci\xF3n SST", "homologacion")}`);
 }
 function correoHomologacionRechazadaRRHH(nombre, sol, nombreEspecifico, rechazo, nombresDocs, appUrl) {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">Prevención rechazó la homologación${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ""} por un problema con ${nombresDocs.length === 1 ? "este documento" : "estos documentos"}:</p>
+    <p style="margin:0">Prevenci\xF3n rechaz\xF3 la homologaci\xF3n${nombreEspecifico ? ` de <b>${escHtml(nombreEspecifico)}</b>` : ""} por un problema con ${nombresDocs.length === 1 ? "este documento" : "estos documentos"}:</p>
     <p style="margin:8px 0 0"><b>${nombresDocs.map((n) => escHtml(n)).join(", ")}</b></p>
     <p style="margin:12px 0 0"><b>Motivo:</b> ${escHtml(rechazo.motivo)}</p>
     ${infoCard([
     ["Tipo", tipoTxt(sol.tipo).replace(/^./, (c) => c.toUpperCase())],
-    ["N° de solicitud", sol.codigo],
+    ["N\xB0 de solicitud", sol.codigo],
     ["Folio", sol.folio]
   ])}
-    <p style="margin:12px 0 0;font-size:13px;color:${GRIS_ETIQUETA}">Corrige o reemplaza el/los documento(s) -- Prevención vuelve a revisar el caso desde ahí.</p>
-    ${boton(appUrl, nombreEspecifico ? "Ir a Contratación" : "Ir a Solicitudes", nombreEspecifico ? "contrataciones" : "solicitudes")}`);
+    <p style="margin:12px 0 0;font-size:13px;color:${GRIS_ETIQUETA}">Corrige o reemplaza el/los documento(s) -- Prevenci\xF3n vuelve a revisar el caso desde ah\xED.</p>
+    ${boton(appUrl, nombreEspecifico ? "Ir a Contrataci\xF3n" : "Ir a Solicitudes", nombreEspecifico ? "contrataciones" : "solicitudes")}`);
 }
 function correoContratacionIniciada(nombre, contrat, sol, centro, appUrl) {
-  const CANAL_LABELS = { recomendacion: "Recomendación", reclutamiento_seleccion: "Reclutamiento y selección" };
+  const CANAL_LABELS = { recomendacion: "Recomendaci\xF3n", reclutamiento_seleccion: "Reclutamiento y selecci\xF3n" };
   const TIPO_TRAB_LABELS = { administrativo: "Administrativo", operativo: "Operativo" };
-  const cargo = sol.detalle?.cargo || "—";
+  const cargo = sol.detalle?.cargo || "\u2014";
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">RRHH inició una contratación en tu centro de costo. Puedes empezar la homologación SST a medida que se vaya subiendo la documentación.</p>
+    <p style="margin:0">RRHH inici\xF3 una contrataci\xF3n en tu centro de costo. Puedes empezar la homologaci\xF3n SST a medida que se vaya subiendo la documentaci\xF3n.</p>
     ${infoCard([
     ["Candidato", contrat.nombre_candidato],
     ["Cargo", cargo],
@@ -1609,28 +1612,42 @@ function correoContratacionIniciada(nombre, contrat, sol, centro, appUrl) {
     ["Tipo de trabajador", TIPO_TRAB_LABELS[contrat.tipo_trabajador] ?? contrat.tipo_trabajador],
     ["Solicitud", sol.folio || sol.codigo]
   ])}
-    ${boton(appUrl, "Ir a Homologación SST", "homologacion")}`);
+    ${boton(appUrl, "Ir a Homologaci\xF3n SST", "homologacion")}`);
 }
-function correoReclutamientoOpciones(nombre, sol, cantidad, appUrl) {
+function correoReclutamientoOpciones(nombre, sol, cantidad, appUrl, desc = "") {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">RRHH envió ${cantidad} candidato${cantidad === 1 ? "" : "s"} para tu solicitud de ingreso. Revísalos y elige uno, o recházalos si ninguno calza.</p>
-    ${infoCard([["N° de solicitud", sol.codigo], ["Folio", sol.folio]])}
+    <p style="margin:0">RRHH envi\xF3 ${cantidad} candidato${cantidad === 1 ? "" : "s"} para tu solicitud de ingreso${desc ? ` <b>${escHtml(desc)}</b>` : ""}. Rev\xEDsalos y elige uno, o rech\xE1zalos si ninguno calza.</p>
+    ${infoCard([["Solicitud", desc ? escHtml(desc) : null], ["N\xB0 de solicitud", sol.codigo], ["Folio", sol.folio]])}
     ${boton(appUrl, "Ver candidatos", "mis-solicitudes")}`);
 }
-function correoReclutamientoElegido(nombre, sol, candidatoNombre, appUrl) {
+function correoReclutamientoElegido(nombre, sol, candidatoNombre, appUrl, desc = "") {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">El solicitante eligió a ${candidatoNombre ? `<b>${escHtml(candidatoNombre)}</b>` : "un candidato"} para la solicitud ${sol.codigo}. Ya se creó la contratación -- continúa el proceso desde ahí.</p>
-    ${infoCard([["N° de solicitud", sol.codigo], ["Folio", sol.folio]])}
-    ${boton(appUrl, "Ir a Contratación", "contrataciones")}`);
+    <p style="margin:0">El solicitante eligi\xF3 a ${candidatoNombre ? `<b>${escHtml(candidatoNombre)}</b>` : "un candidato"} para la solicitud ${desc ? `<b>${escHtml(desc)}</b>` : sol.codigo}. Ya se cre\xF3 la contrataci\xF3n -- contin\xFAa el proceso desde ah\xED.</p>
+    ${infoCard([["Solicitud", desc ? escHtml(desc) : null], ["N\xB0 de solicitud", sol.codigo], ["Folio", sol.folio]])}
+    ${boton(appUrl, "Ir a Contrataci\xF3n", "contrataciones")}`);
 }
-function correoReclutamientoTodosRechazados(nombre, sol, appUrl) {
+function correoReclutamientoTodosRechazados(nombre, sol, appUrl, desc = "") {
   return shell(`
     <p style="margin:0 0 4px">Hola ${nombre},</p>
-    <p style="margin:0">El solicitante rechazó a todos los candidatos enviados para la solicitud ${sol.codigo}. Agrega una nueva tanda de candidatos desde Contratación: el plazo de reclutamiento (${DIAS_HABILES_RECLUTAMIENTO} días hábiles) vuelve a correr desde este rechazo.</p>
-    ${infoCard([["N° de solicitud", sol.codigo], ["Folio", sol.folio]])}
-    ${boton(appUrl, "Ir a Contratación", "contrataciones")}`);
+    <p style="margin:0">El solicitante rechaz\xF3 a todos los candidatos enviados para la solicitud ${desc ? `<b>${escHtml(desc)}</b>` : sol.codigo}. Agrega una nueva tanda de candidatos desde Contrataci\xF3n: el plazo de reclutamiento (${DIAS_HABILES_RECLUTAMIENTO} d\xEDas h\xE1biles) vuelve a correr desde este rechazo.</p>
+    ${infoCard([["Solicitud", desc ? escHtml(desc) : null], ["N\xB0 de solicitud", sol.codigo], ["Folio", sol.folio]])}
+    ${boton(appUrl, "Ir a Contrataci\xF3n", "contrataciones")}`);
+}
+async function descripcionIngreso(admin, sol) {
+  const d = sol?.detalle ?? {};
+  const cant = Number(d.cantidad) || 1;
+  let obra = "";
+  if (sol?.centro_origen_id) {
+    const { data: c } = await admin.from("centros_costo").select("codigo, nombre").eq("id", sol.centro_origen_id).maybeSingle();
+    if (c) {
+      const n = String(c.nombre ?? "");
+      obra = `Obra ${c.codigo ?? ""}${n ? " " + (n.length > 60 ? n.slice(0, 59) + "\u2026" : n) : ""}`.trim();
+    }
+  }
+  const f = typeof d.fecha_ingreso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.fecha_ingreso) ? d.fecha_ingreso.split("-").reverse().join("-") : "";
+  return [d.cargo || "Cargo sin indicar", `${cant} vacante${cant === 1 ? "" : "s"}`, obra, f ? `ingreso desde el ${f}` : ""].filter(Boolean).join(" \xB7 ");
 }
 function aChile(f) {
   return new Date(new Date(f).toLocaleString("en-US", { timeZone: "America/Santiago" }));
@@ -1640,7 +1657,7 @@ function nivelEspera(desde, ahora = /* @__PURE__ */ new Date()) {
   const dias = diasHabilesEntre(aChile(desde), aChile(ahora));
   const nivel = dias >= ESPERA_DIAS_CRITICA ? "critica" : dias >= ESPERA_DIAS_ATRASADA ? "atrasada" : "al_dia";
   const h = Math.floor(horas);
-  const texto = dias >= 1 ? `${dias} día${dias === 1 ? "" : "s"} hábil${dias === 1 ? "" : "es"}` : horas < 1 ? "menos de 1 hora" : `${h} hora${h === 1 ? "" : "s"}`;
+  const texto = dias >= 1 ? `${dias} d\xEDa${dias === 1 ? "" : "s"} h\xE1bil${dias === 1 ? "" : "es"}` : horas < 1 ? "menos de 1 hora" : `${h} hora${h === 1 ? "" : "s"}`;
   return { dias, horas, nivel, texto };
 }
 var fechaHoraCL = (f) => new Date(f).toLocaleString("es-CL", {
@@ -1673,7 +1690,7 @@ function aprobacionesEnTurno(sol, aprs) {
 async function recordatorioAprobador(admin, userId, { aprobador_id, solicitud_id }, appUrl) {
   if (!aprobador_id && !solicitud_id) return json({ error: "Falta aprobador_id o solicitud_id." }, 400);
   const { data: yo } = await admin.from("perfiles").select("id, nombre, rol, activo").eq("id", userId).single();
-  if (!yo || yo.activo === false) return json({ error: "Tu cuenta no está activa." }, 403);
+  if (!yo || yo.activo === false) return json({ error: "Tu cuenta no est\xE1 activa." }, 403);
   const esGestion = yo.rol === "admin" || yo.rol === "rrhh";
   let objetivos = [];
   let origen = "rrhh_admin";
@@ -1692,15 +1709,15 @@ async function recordatorioAprobador(admin, userId, { aprobador_id, solicitud_id
         if (mio) items.push({ sol: s, desde: mio.desde });
       }
     }
-    if (!items.length) return json({ error: "Este aprobador no tiene solicitudes esperando su decisión en este momento." }, 400);
+    if (!items.length) return json({ error: "Este aprobador no tiene solicitudes esperando su decisi\xF3n en este momento." }, 400);
     objetivos = [{ aprobadorId: aprobador_id, items }];
   } else {
     const { data: s } = await admin.from("solicitudes").select(SOL_FIELDS).eq("id", solicitud_id).single();
     if (!s) return json({ error: "Solicitud no encontrada." }, 404);
     if (s.solicitante_id !== userId && !esGestion) {
-      return json({ error: "Solo quien creó la solicitud (o RRHH / el administrador) puede enviar este recordatorio." }, 403);
+      return json({ error: "Solo quien cre\xF3 la solicitud (o RRHH / el administrador) puede enviar este recordatorio." }, 403);
     }
-    if (s.estado !== "pendiente") return json({ error: "Esta solicitud ya no está pendiente de aprobación." }, 400);
+    if (s.estado !== "pendiente") return json({ error: "Esta solicitud ya no est\xE1 pendiente de aprobaci\xF3n." }, 400);
     const { data: aprs } = await admin.from("aprobaciones").select(APR_FIELDS).eq("solicitud_id", s.id);
     const turno = aprobacionesEnTurno(s, aprs ?? []);
     if (!turno.length) return json({ error: "Esta solicitud no tiene aprobadores pendientes." }, 400);
@@ -1720,7 +1737,7 @@ async function recordatorioAprobador(admin, userId, { aprobador_id, solicitud_id
       const proximo = new Date(new Date(choca.created_at).getTime() + RECORDATORIO_ENFRIAMIENTO_HORAS * 3600 * 1e3);
       const nombreApr = pmap.get(o.aprobadorId)?.nombre || "este aprobador";
       return json({
-        error: `Ya se le envió un recordatorio a ${nombreApr} ${cuandoCL(choca.created_at)}${quien?.nombre ? ` (lo pidió ${quien.nombre})` : ""}. Podrás enviar otro ${cuandoCL(proximo)}.`,
+        error: `Ya se le envi\xF3 un recordatorio a ${nombreApr} ${cuandoCL(choca.created_at)}${quien?.nombre ? ` (lo pidi\xF3 ${quien.nombre})` : ""}. Podr\xE1s enviar otro ${cuandoCL(proximo)}.`,
         proximo_permitido: proximo.toISOString()
       }, 429);
     }
@@ -1733,9 +1750,9 @@ async function recordatorioAprobador(admin, userId, { aprobador_id, solicitud_id
   const tmap = new Map((trabs ?? []).map((t) => [t.id, t.nombre]));
   const cmap = new Map((centros ?? []).map((c) => [c.id, c.nombre]));
   const detalleCorto = (s) => {
-    const quien = s.tipo === "ingreso" ? `${s.detalle?.cargo || "Cargo"} × ${s.detalle?.cantidad || 1}` : tmap.get(s.trabajador_id) || "Trabajador";
+    const quien = s.tipo === "ingreso" ? `${s.detalle?.cargo || "Cargo"} \xD7 ${s.detalle?.cantidad || 1}` : tmap.get(s.trabajador_id) || "Trabajador";
     const centro = cmap.get(s.centro_origen_id);
-    return centro ? `${quien} · ${centro}` : quien;
+    return centro ? `${quien} \xB7 ${centro}` : quien;
   };
   const ROL_TXT = { admin: "administrador", rrhh: "RRHH", solicitante: "solicitante", supervisor: "supervisor" };
   const pedidoPor = { nombre: yo.nombre ?? "", rol: ROL_TXT[yo.rol] ?? yo.rol };
@@ -1753,7 +1770,7 @@ async function recordatorioAprobador(admin, userId, { aprobador_id, solicitud_id
       desde: i.desde,
       espera: nivelEspera(i.desde),
       detalle: detalleCorto(i.sol),
-      solicitante: pmap.get(i.sol.solicitante_id)?.nombre || "—"
+      solicitante: pmap.get(i.sol.solicitante_id)?.nombre || "\u2014"
     })).sort((a, b) => new Date(a.desde).getTime() - new Date(b.desde).getTime());
     const { asunto, html } = correoRecordatorio(apr.nombre ?? "", filas, pedidoPor, origen, appUrl);
     await graphSend(token, apr.email, asunto, html);
@@ -1767,14 +1784,14 @@ async function recordatorioAprobador(admin, userId, { aprobador_id, solicitud_id
     destinatarios.push(apr.nombre ?? apr.email);
   }
   if (!destinatarios.length) {
-    return json({ error: `${sinCorreo.join(", ")} no tiene correo registrado o su cuenta está inactiva.` }, 400);
+    return json({ error: `${sinCorreo.join(", ")} no tiene correo registrado o su cuenta est\xE1 inactiva.` }, 400);
   }
   return json({ ok: true, enviados: destinatarios.length, destinatarios, sin_correo: sinCorreo });
 }
 var NIVEL_ESTILO = {
-  al_dia: { etiqueta: "Al día", bg: "#e0f2fe", fg: "#0369a1" },
+  al_dia: { etiqueta: "Al d\xEDa", bg: "#e0f2fe", fg: "#0369a1" },
   atrasada: { etiqueta: "Atrasada", bg: "#fef3c7", fg: "#92400e" },
-  critica: { etiqueta: "Crítica", bg: ROJO_BG, fg: ROJO_FG }
+  critica: { etiqueta: "Cr\xEDtica", bg: ROJO_BG, fg: ROJO_FG }
 };
 function correoRecordatorio(nombre, filas, pedidoPor, origen, appUrl) {
   const n = filas.length;
@@ -1787,24 +1804,24 @@ function correoRecordatorio(nombre, filas, pedidoPor, origen, appUrl) {
   let asunto;
   let intro;
   if (origen === "solicitante") {
-    asunto = nivel === "critica" ? `Urgente: la solicitud ${peor.sol.codigo} lleva ${peor.espera.texto} esperando tu aprobación` : `Recordatorio: la solicitud ${peor.sol.codigo} espera tu aprobación`;
-    intro = `<b>${escHtml(pedidoPor.nombre)}</b> te pide revisar su solicitud <b>${codigo}</b>, que lleva <b>${espera}</b> esperando tu aprobación.`;
+    asunto = nivel === "critica" ? `Urgente: la solicitud ${peor.sol.codigo} lleva ${peor.espera.texto} esperando tu aprobaci\xF3n` : `Recordatorio: la solicitud ${peor.sol.codigo} espera tu aprobaci\xF3n`;
+    intro = `<b>${escHtml(pedidoPor.nombre)}</b> te pide revisar su solicitud <b>${codigo}</b>, que lleva <b>${espera}</b> esperando tu aprobaci\xF3n.`;
   } else if (nivel === "critica") {
-    asunto = `Urgente: ${n} ${plural} esperan tu aprobación hace ${peor.espera.texto}`;
-    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobación y la más antigua ya lleva <b>${espera}</b>.`;
+    asunto = `Urgente: ${n} ${plural} esperan tu aprobaci\xF3n hace ${peor.espera.texto}`;
+    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobaci\xF3n y la m\xE1s antigua ya lleva <b>${espera}</b>.`;
   } else if (nivel === "atrasada") {
-    asunto = `Recordatorio: ${n} ${plural} esperan tu aprobación (${peor.espera.texto})`;
-    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobación; la más antigua lleva <b>${espera}</b>.`;
+    asunto = `Recordatorio: ${n} ${plural} esperan tu aprobaci\xF3n (${peor.espera.texto})`;
+    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobaci\xF3n; la m\xE1s antigua lleva <b>${espera}</b>.`;
   } else {
     asunto = `Recordatorio: tienes ${n} ${plural} por aprobar`;
-    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobación en SSI-RRHH.`;
+    intro = `Tienes <b>${n} ${plural}</b> esperando tu aprobaci\xF3n en SSI-RRHH.`;
   }
-  const cierre = nivel === "critica" ? `Es urgente: ${n === 1 ? "la solicitud no avanza" : "las solicitudes no avanzan"} hasta que decidas, y una vez aprobada${n === 1 ? "" : "s"} RRHH todavía necesita hasta ${DIAS_HABILES_PROCESO_RRHH} días hábiles para procesarla${n === 1 ? "" : "s"}.` : nivel === "atrasada" ? `Te pedimos revisar${n === 1 ? "la" : "las"} a la brevedad: hasta que decidas, ${n === 1 ? "la solicitud no avanza" : "no avanzan"}.` : `Mientras antes ${n === 1 ? "la revises" : "las revises"}, antes puede seguir el proceso.`;
+  const cierre = nivel === "critica" ? `Es urgente: ${n === 1 ? "la solicitud no avanza" : "las solicitudes no avanzan"} hasta que decidas, y una vez aprobada${n === 1 ? "" : "s"} RRHH todav\xEDa necesita hasta ${DIAS_HABILES_PROCESO_RRHH} d\xEDas h\xE1biles para procesarla${n === 1 ? "" : "s"}.` : nivel === "atrasada" ? `Te pedimos revisar${n === 1 ? "la" : "las"} a la brevedad: hasta que decidas, ${n === 1 ? "la solicitud no avanza" : "no avanzan"}.` : `Mientras antes ${n === 1 ? "la revises" : "las revises"}, antes puede seguir el proceso.`;
   const color2 = (nv) => NIVEL_ESTILO[nv].fg;
   const tr = filas.map((f) => `
     <tr>
       <td style="padding:8px 8px 8px 0;border-top:1px solid #edf0f4;vertical-align:top">
-        <div style="font-weight:700;color:${NAVY};font-size:13px">${escHtml(f.sol.codigo || "—")}</div>
+        <div style="font-weight:700;color:${NAVY};font-size:13px">${escHtml(f.sol.codigo || "\u2014")}</div>
         <div style="color:${GRIS_ETIQUETA};font-size:11.5px">${escHtml(tipoTxt(f.sol.tipo).replace(/^./, (c) => c.toUpperCase()))}</div>
       </td>
       <td style="padding:8px;border-top:1px solid #edf0f4;vertical-align:top;font-size:12.5px;color:${GRIS_TEXTO}">

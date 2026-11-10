@@ -2378,3 +2378,15 @@ desactivara, el campo vuelve a aparecer en los datos).
 - Probado: en Postgres local con la función original de 0002, dos corridas; correo malo no cuenta, bueno sí, borrarlo
   vuelve a "en proceso", el archivo antiguo sigue contando, contratado no cambia. En la app: el correo malo no se guarda,
   el bueno sí y el avance pasa de 1/4 a 2/4; se ve bien en el celular. Compila.
+
+## 36. Estado civil opcional en Contratación (nov. 2026)
+
+A pedido, "Estado Civil (certificado/declaración)" del checklist de Contratación pasa a **opcional**.
+- **0030_estado_civil_opcional.sql** (requiere la 0029; si no está, lo avisa y no hace nada): deja `estado_civil` con
+  `obligatorio = false` y agrega `trg_recalcular_contrataciones_por_checklist`, que recalcula las contrataciones en curso
+  cada vez que un admin cambia el checklist (obligatorio, activo, aplica a administrativo/operativo, o agrega/borra un
+  ítem). Antes, un cambio en Administración -> Checklist de documentos recién se notaba al subir otro documento. Al
+  correrla, las que solo esperaban el estado civil pasan a "documentos completos".
+- En la app no hubo que cambiar nada: el checklist se lee de la base y ahora muestra "Opcional".
+- Probado en Postgres local: sin la 0029 avisa; dos corridas; la contratación que solo esperaba el estado civil pasa a
+  completa, y si se vuelve a marcar obligatorio desde el checklist vuelve a "en proceso" al tiro (y al revés).

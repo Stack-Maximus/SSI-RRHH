@@ -3,7 +3,7 @@
 --
 -- ¿Me falta correr algún script? Revisa la base contra el repositorio:
 --
---  MIGRACIONES 0001 a 0029: que estén las tablas, columnas, valores de
+--  MIGRACIONES 0001 a 0030: que estén las tablas, columnas, valores de
 --  enum, restricciones, buckets, funciones, triggers y políticas que crea
 --  cada una. Las FUNCIONES se comparan además con el contenido de su
 --  última versión en el repo: si están pero con una versión anterior,
@@ -143,7 +143,9 @@ insert into _esp (migracion, tipo, objeto, extra) values
   ('0029', 'función', 'estado_contratacion_por_datos', '153bc61693074836e6d0b758d7680008|'),
   ('0029', 'función', 'recalcular_estado_contratacion', '21fbcc7571316be409471989f78ed3af|p_contratacion_id'),
   ('0029', 'trigger', 'public.contrataciones.trg_estado_contratacion_por_datos', ''),
-  ('0029', 'trigger', 'public.documentos_contratacion.trg_actualizar_estado_contratacion', '');
+  ('0029', 'trigger', 'public.documentos_contratacion.trg_actualizar_estado_contratacion', ''),
+  ('0030', 'función', 'recalcular_contrataciones_por_checklist', '3a6c4d1dfd7e69cc7f08f06f5bc82477|'),
+  ('0030', 'trigger', 'public.documentos_checklist.trg_recalcular_contrataciones_por_checklist', '');
 
 create temp table if not exists _migs (migracion text);
 truncate _migs;
@@ -176,7 +178,8 @@ insert into _migs values
   ('0026'),
   ('0027'),
   ('0028'),
-  ('0029');
+  ('0029'),
+  ('0030');
 
 create temp table if not exists _rev (migracion text, tipo text, objeto text, estado text);
 truncate _rev;

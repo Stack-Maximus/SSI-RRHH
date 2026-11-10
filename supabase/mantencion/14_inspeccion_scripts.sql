@@ -3,7 +3,7 @@
 --
 -- ¿Me falta correr algún script? Revisa la base contra el repositorio:
 --
---  MIGRACIONES 0001 a 0027: que estén las tablas, columnas, valores de
+--  MIGRACIONES 0001 a 0029: que estén las tablas, columnas, valores de
 --  enum, restricciones, buckets, funciones, triggers y políticas que crea
 --  cada una. Las FUNCIONES se comparan además con el contenido de su
 --  última versión en el repo: si están pero con una versión anterior,
@@ -31,7 +31,6 @@ truncate _esp;
 insert into _esp (migracion, tipo, objeto, extra) values
   ('0001', 'valor enum', 'user_role.prevencionista', ''),
   ('0002', 'bucket', 'contratacion-documentos', ''),
-  ('0002', 'función', 'actualizar_estado_contratacion', '8dc304c2f41398e885aaa09cc25a0123|'),
   ('0002', 'función', 'rol_actual', '53de422a4c0e483da37669fd54e1065c|'),
   ('0002', 'política', 'public.contrataciones.contrataciones_rrhh_admin', ''),
   ('0002', 'política', 'public.documentos_checklist.documentos_checklist_select', ''),
@@ -41,7 +40,6 @@ insert into _esp (migracion, tipo, objeto, extra) values
   ('0002', 'tabla', 'contrataciones', ''),
   ('0002', 'tabla', 'documentos_checklist', ''),
   ('0002', 'tabla', 'documentos_contratacion', ''),
-  ('0002', 'trigger', 'public.documentos_contratacion.trg_actualizar_estado_contratacion', ''),
   ('0005', 'valor enum', 'user_role.supervisor', ''),
   ('0006', 'valor enum', 'tipo_solicitud.aumento_sueldo', ''),
   ('0006', 'valor enum', 'tipo_solicitud.bono', ''),
@@ -133,7 +131,19 @@ insert into _esp (migracion, tipo, objeto, extra) values
   ('0027', 'función', 'alertas_vencimiento_secreto_ok', '0842def75d88e0156b7ac202c0a3989e|p_secreto'),
   ('0027', 'función', 'disparar_alertas_vencimiento', 'd1bf1043c969c6728bf50e386573634e|p_opciones'),
   ('0027', 'política', 'public.avisos_vencimiento_contrato.avisos_vencimiento_select', ''),
-  ('0027', 'tabla', 'avisos_vencimiento_contrato', '');
+  ('0027', 'tabla', 'avisos_vencimiento_contrato', ''),
+  ('0028', 'columna', 'perfiles.aprobacion_automatica', ''),
+  ('0028', 'función', 'aprobar_solicitud_automatica', 'e6bc839610900771f137711c3a819a51|'),
+  ('0028', 'función', 'omitir_etapas_aprobacion_automatica', '07f41345b26a5902ec023fb025f5518e|'),
+  ('0028', 'función', 'proteger_aprobacion_automatica', '18cafe30798308d0ac622ea87fa2ef9d|'),
+  ('0028', 'trigger', 'public.aprobaciones.trg_00_omitir_etapas_aprobacion_automatica', ''),
+  ('0028', 'trigger', 'public.perfiles.trg_proteger_aprobacion_automatica', ''),
+  ('0028', 'trigger', 'public.solicitudes.trg_aprobar_solicitud_automatica', ''),
+  ('0029', 'función', 'actualizar_estado_contratacion', 'ee2913ec75158eb20f39665e1a76e981|'),
+  ('0029', 'función', 'estado_contratacion_por_datos', '153bc61693074836e6d0b758d7680008|'),
+  ('0029', 'función', 'recalcular_estado_contratacion', '21fbcc7571316be409471989f78ed3af|p_contratacion_id'),
+  ('0029', 'trigger', 'public.contrataciones.trg_estado_contratacion_por_datos', ''),
+  ('0029', 'trigger', 'public.documentos_contratacion.trg_actualizar_estado_contratacion', '');
 
 create temp table if not exists _migs (migracion text);
 truncate _migs;
@@ -164,7 +174,9 @@ insert into _migs values
   ('0024'),
   ('0025'),
   ('0026'),
-  ('0027');
+  ('0027'),
+  ('0028'),
+  ('0029');
 
 create temp table if not exists _rev (migracion text, tipo text, objeto text, estado text);
 truncate _rev;

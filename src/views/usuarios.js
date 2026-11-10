@@ -4,6 +4,11 @@
  * Prevención y activo/inactivo. El alta de la identidad (Auth) se hace
  * invitando desde Supabase; acá se gestiona solo el perfil/permisos.
  *
+ * "Sin aprobación" (perfiles.aprobacion_automatica, migración 0028): las
+ * solicitudes de esa persona (ej. el Gerente General) no pasan por
+ * aprobadores; quedan aprobadas al crearlas y le llegan a RRHH. La regla
+ * vive en la base (triggers de 0028); solo un admin puede marcarla.
+ *
  * Gerente de Prevención (migración 0016) recibe copia por correo de todo
  * rechazo de homologación SST, sea cual sea el centro de costo -- a
  * diferencia de Gerente de Operaciones, no es aprobador de nada, así que
@@ -47,6 +52,9 @@ export async function renderUsuarios(container) {
       <td><select class="u-input" data-field="centro_costo_id">${optsCentros(u.centro_costo_id)}</select></td>
       <td class="u-center"><input type="checkbox" class="u-input" data-field="es_gerente_operaciones" ${u.es_gerente_operaciones ? 'checked' : ''}></td>
       <td class="u-center"><input type="checkbox" class="u-input" data-field="es_gerente_prevencion" ${u.es_gerente_prevencion ? 'checked' : ''}></td>
+      <td class="u-center">${'aprobacion_automatica' in u
+        ? `<input type="checkbox" class="u-input" data-field="aprobacion_automatica" ${u.aprobacion_automatica ? 'checked' : ''} title="Sus solicitudes no requieren aprobación">`
+        : '<input type="checkbox" disabled title="Falta correr la migración 0028">'}</td>
       <td class="u-center"><input type="checkbox" class="u-input" data-field="activo" ${u.activo ? 'checked' : ''}></td>
     </tr>`).join('');
 
@@ -74,7 +82,7 @@ export async function renderUsuarios(container) {
     </div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Usuario</th><th>Rol</th><th>Centro de costo</th><th>Gerente Op.</th><th>Gerente Prev.</th><th>Activo</th></tr></thead>
+        <thead><tr><th>Usuario</th><th>Rol</th><th>Centro de costo</th><th>Gerente Op.</th><th>Gerente Prev.</th><th title="Sus solicitudes no requieren aprobación: quedan aprobadas al crearlas y le llegan a RRHH">Sin aprobación</th><th>Activo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -112,7 +120,9 @@ export async function renderUsuarios(container) {
       try {
         await Data.actualizarUsuario(id, { [field]: value });
         if (field === 'activo') tr.classList.toggle('row-inactivo', !value);
-        Toast.success('Guardado', '');
+        Toast.success('Guardado', field === 'aprobacion_automatica'
+          ? (value ? 'Sus próximas solicitudes no requieren aprobación.' : 'Sus próximas solicitudes vuelven a pasar por aprobación.')
+          : '');
       } catch (e) {
         console.error('[usuarios] update', e);
         Toast.error('Error', 'No se pudo guardar el cambio.');

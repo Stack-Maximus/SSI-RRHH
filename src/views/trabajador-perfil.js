@@ -9,7 +9,7 @@
 import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen } from '../ui/solicitud-format.js';
+import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen, etiquetaEtapa } from '../ui/solicitud-format.js';
 import { renderComprobante } from './comprobante.js';
 
 function diasHasta(fechaISO) {
@@ -53,7 +53,7 @@ export async function renderTrabajadorPerfil(container, trabajadorId, backView) 
 
   const timeline = sols.map(s => {
     const solicitante = perfiles.get(s.solicitante_id)?.nombre || '—';
-    const steps = (s.aprobaciones || []).map(a => `<div class="sol-step">Aprobador ${a.orden} ${decisionBadge(a.decision)}</div>`).join('');
+    const steps = (s.aprobaciones || []).map(a => `<div class="sol-step">${etiquetaEtapa(a)} ${decisionBadge(a.decision)}</div>`).join('');
     return `
       <div class="sol-card" data-sol="${s.id}">
         <div class="sol-card-top">

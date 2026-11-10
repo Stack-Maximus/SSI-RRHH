@@ -26,7 +26,7 @@ import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
 import { fechaCorta } from '../ui/solicitud-format.js';
-import { estadoContratacionBadge, canalLabel, tipoTrabajadorLabel, checklistParaTipo } from '../ui/contratacion-format.js';
+import { estadoContratacionBadge, canalLabel, tipoTrabajadorLabel, checklistParaTipo, esItemCorreo, emailValido } from '../ui/contratacion-format.js';
 import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
 import { state } from '../core/state.js';
 
@@ -113,6 +113,18 @@ function cardTraslado(s, trabajadores, centros) {
       </div>
       <div class="sol-detalle muted">🔁 Traslado · ${escapeHtml(origen)} → ${escapeHtml(destino)}</div>
       <button class="link-btn" data-ver="traslado:${s.id}">Ver documentos ▸</button>
+    </div>`;
+}
+
+/** "Correo electrónico": RRHH lo digita en la contratación (migración 0029), no lo sube. */
+function filaCorreoDigitado(item, email, doc) {
+  const ok = emailValido(email) || !!doc;
+  return `
+    <div class="chk-row ${ok ? 'chk-ok' : ''}">
+      <div class="chk-info">
+        <div class="chk-nombre">${ok ? '✅' : '⬜'} ${escapeHtml(item.nombre)}</div>
+        <div class="muted">${emailValido(email) ? escapeHtml(email) : doc ? `<button class="link-btn" data-doc="${doc.storage_path}">${escapeHtml(doc.nombre_archivo)}</button>` : 'Aún no lo digita RRHH.'}</div>
+      </div>
     </div>`;
 }
 
@@ -205,8 +217,10 @@ async function verDetalleIngreso(container, contratacionId, ctx) {
   const docPorItem = new Map(documentos.map(d => [d.checklist_item_id, d]));
   const checklistMap = new Map(ctx.checklist.map(i => [i.id, i]));
 
-  const fila = (item) => filaDoc(item, docPorItem.get(item.id),
-    item.codigo === 'contrato_trabajo' ? ' <span class="badge badge-info">Inicia el plazo de homologación</span>' : '');
+  const fila = (item) => esItemCorreo(item)
+    ? filaCorreoDigitado(item, c.email_candidato, docPorItem.get(item.id))
+    : filaDoc(item, docPorItem.get(item.id),
+      item.codigo === 'contrato_trabajo' ? ' <span class="badge badge-info">Inicia el plazo de homologación</span>' : '');
 
   const faltantesPrincipales = principales.filter(i => !docPorItem.has(i.id)).length;
   const autorizada = !!c.homologacion_aprobada_at;

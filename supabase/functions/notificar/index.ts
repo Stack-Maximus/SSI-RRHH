@@ -79,7 +79,7 @@ import { construirComprobantePdf } from '../_shared/pdf-comprobante.ts';
 import { tipoTxt, DOCUMENTO_CODIGOS, TIPO_LABELS, MAESTRO_SOLICITUDES_CODIGO, detalleLineas } from '../_shared/solicitud-detalle.ts';
 import { LOGO_METALIUM_PNG_B64 } from '../_shared/logo.ts';
 import { correoSgc, escCorreo } from '../_shared/correo-sgc.js';
-import { documentoComprobante, fechaDMY, fechaHora } from '../_shared/sgc-documentos.js';
+import { documentoComprobante, fechaDMY, fechaHora, esAprobacionAutomatica } from '../_shared/sgc-documentos.js';
 import { ICONOS_CORREO_PNG_B64 } from '../_shared/iconos-correo.ts';
 import { diasHabilesEntre } from '../_shared/dias-habiles.js';
 
@@ -349,8 +349,18 @@ Deno.serve(async (req) => {
       .eq('id', solicitud_id).single();
     if (solErr || !sol) return json({ error: 'Solicitud no encontrada.' }, 404);
 
+    // Solicitud de alguien con "Sus solicitudes no requieren aprobación"
+    // (perfiles.aprobacion_automatica, migración 0028): al crearla ya queda
+    // aprobada, con una sola etapa automática a su nombre. En vez de avisar a
+    // aprobadores, se manda el aviso de "aprobada" (con el PDF) a RRHH y a quien solicitó.
+    let evento = type;
+    if (type === 'pendiente_aprobador' && sol.estado === 'aprobada') {
+      const { data: etapas } = await admin.from('aprobaciones').select('comentario').eq('solicitud_id', sol.id);
+      if ((etapas ?? []).length && (etapas ?? []).every(esAprobacionAutomatica)) evento = 'cambio_estado';
+    }
+
     // ---- aviso a aprobadores pendientes (al crear) ----
-    if (type === 'pendiente_aprobador') {
+    if (evento === 'pendiente_aprobador') {
       // Solo si la solicitud sigue pendiente
       if (sol.estado !== 'pendiente') {
         return json({ ok: true, skipped: true, reason: `estado ${sol.estado}` });
@@ -378,7 +388,7 @@ Deno.serve(async (req) => {
     }
 
     // ---- cambio de estado ----
-    if (type === 'cambio_estado') {
+    if (evento === 'cambio_estado') {
       if (sol.estado !== 'aprobada' && sol.estado !== 'rechazada') {
         return json({ ok: true, skipped: true, reason: `estado ${sol.estado} no notificable` });
       }
@@ -666,7 +676,14 @@ function correoRechazada(nombre: string, d: DatosSol, appUrl: string): Correo {
 function correoAprobada(nombre: string, d: DatosSol, appUrl: string, rol: 'rrhh' | 'solicitante' | 'aprobador', adjunto: string): Correo {
   const tipo = escHtml(Tipo(d.sol.tipo));
   const aprobada = `<b style="color:${VERDE}">aprobada por todos los aprobadores</b>`;
-  const texto = rol === 'rrhh'
+  // Sin aprobadores: quien la pidió tiene "Sus solicitudes no requieren aprobación" (0028)
+  const automatica = d.aprs.length > 0 && d.aprs.every(esAprobacionAutomatica);
+  const quien = escHtml(d.pmap.get(d.sol.solicitante_id)?.nombre ?? '');
+  const texto = automatica
+    ? (rol === 'rrhh'
+      ? p0(`La solicitud de <b>${tipo}</b>${quien ? ` de <b>${quien}</b>` : ''} quedó <b style="color:${VERDE}">aprobada</b> al crearla: no requiere aprobación. Ya puedes continuar con el proceso (plazo: ${DIAS_HABILES_PROCESO_RRHH} días hábiles).`)
+      : p0(`Tu solicitud de <b>${tipo}</b> quedó <b style="color:${VERDE}">aprobada</b>: no requiere aprobación. RRHH continuará con el proceso.`))
+    : rol === 'rrhh'
     ? p0(`La solicitud de <b>${tipo}</b> fue ${aprobada}. Ya puedes continuar con el proceso (plazo: ${DIAS_HABILES_PROCESO_RRHH} días hábiles).`)
     : rol === 'solicitante'
       ? p0(`Tu solicitud de <b>${tipo}</b> fue ${aprobada}. RRHH continuará con el proceso.`)

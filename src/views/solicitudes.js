@@ -7,7 +7,7 @@
 import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen, detalleHtml, detalleTexto } from '../ui/solicitud-format.js';
+import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen, detalleHtml, detalleTexto, etiquetaEtapa, esAprobacionAutomatica } from '../ui/solicitud-format.js';
 import { TIPO_SOLICITUD_META, MAESTRO_SOLICITUDES_CODIGO, DOCUMENTO_CODIGOS, TIPOS_SOLICITUD_SIN_DOCUMENTO } from '../config.js';
 import { progresoDocumentosTraslado } from '../ui/traslado-format.js';
 import { state } from '../core/state.js';
@@ -129,7 +129,7 @@ function card(s) {
   const total = (s.aprobaciones || []).length;
   const enTurno = new Set(aprobacionesEnTurno(s));
   const steps = (s.aprobaciones || []).map(a =>
-    `<div class="sol-step ${enTurno.has(a) ? 'sol-step-turno' : ''}">Aprobador ${a.orden} ${decisionBadge(a.decision)}${enTurno.has(a) ? ' ' + esperaBadge(esperaDesde(s, a)) : ''}</div>`).join('');
+    `<div class="sol-step ${enTurno.has(a) ? 'sol-step-turno' : ''}">${etiquetaEtapa(a)} ${decisionBadge(a.decision)}${enTurno.has(a) ? ' ' + esperaBadge(esperaDesde(s, a)) : ''}</div>`).join('');
   // Nov. 2026: en filas (ver ui/filas.js) en vez de tarjetas.
   return fila({
     id: s.id,
@@ -314,12 +314,13 @@ async function exportarMaestro() {
         const ms = a?.tiempo_respuesta != null
           ? a.tiempo_respuesta * 1000
           : (a?.decidido_at && a?.asignado_at ? new Date(a.decidido_at) - new Date(a.asignado_at) : null);
+        const auto = esAprobacionAutomatica(a);
         fila.push(
-          a ? (perfiles.get(a.aprobador_id)?.nombre || '') : '',
+          a ? (perfiles.get(a.aprobador_id)?.nombre || '') + (auto ? ' (aprobación automática)' : '') : '',
           a ? capital(a.decision) : '',
           a?.asignado_at ? fechaHora(a.asignado_at) : '',
           a?.decidido_at ? fechaHora(a.decidido_at) : '',
-          a && ms != null ? duracion(ms) : '',
+          auto ? 'No requiere' : (a && ms != null ? duracion(ms) : ''),
         );
       }
       return fila;

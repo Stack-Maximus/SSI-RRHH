@@ -48,6 +48,16 @@ const dmyIso = (iso, sep = '-') => {
   return m ? `${m[3]}${sep}${m[2]}${sep}${m[1]}` : (iso || '—');
 };
 
+/**
+ * Comentario con el que la base deja la aprobación de una solicitud de
+ * alguien con "Sus solicitudes no requieren aprobación" (perfiles.
+ * aprobacion_automatica, migración 0028): una sola etapa, a su nombre, ya
+ * aprobada. Con esto el comprobante, las tablas y los correos la muestran
+ * como "aprobación automática" y no como un aprobador más.
+ */
+export const APROBACION_AUTOMATICA = 'Aprobación automática';
+export const esAprobacionAutomatica = (a) => a?.comentario === APROBACION_AUTOMATICA;
+
 // Campos de texto largo: van en una ficha a lo ancho de la tarjeta.
 const LARGOS = /^(motivo|modificaciones|observaciones|hito de la obra|nueva condición)$/i;
 
@@ -100,13 +110,14 @@ export function documentoComprobante(data, ref, hoy = new Date()) {
     const ms = a.tiempo_respuesta != null
       ? a.tiempo_respuesta * 1000
       : (a.decidido_at && a.asignado_at ? new Date(a.decidido_at).getTime() - new Date(a.asignado_at).getTime() : null);
+    const auto = esAprobacionAutomatica(a);
     return [
       String(a.orden),
-      pmap.get(a.aprobador_id)?.nombre ?? '—',
+      auto ? `${pmap.get(a.aprobador_id)?.nombre ?? '—'} (aprobación automática)` : (pmap.get(a.aprobador_id)?.nombre ?? '—'),
       capital(String(a.decision ?? 'pendiente')),
       fechaHora(a.asignado_at),
       a.decidido_at ? fechaHora(a.decidido_at) : '—',
-      duracion(ms),
+      auto ? 'No requiere' : duracion(ms),
     ];
   });
 

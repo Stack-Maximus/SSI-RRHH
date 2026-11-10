@@ -11,7 +11,8 @@ import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
 import { fechaCorta } from '../ui/solicitud-format.js';
 import {
-  estadoContratacionBadge, canalLabel, tipoTrabajadorLabel, checklistParaTipo, progresoDocumentos
+  estadoContratacionBadge, canalLabel, tipoTrabajadorLabel, checklistParaTipo, progresoDocumentos,
+  esItemCorreo, emailValido
 } from '../ui/contratacion-format.js';
 
 const CANALES = [['recomendacion', 'Recomendación'], ['reclutamiento_seleccion', 'Reclutamiento y selección']];
@@ -40,7 +41,10 @@ export async function renderContratacionDetalle(container, contratacionId, backV
 
   const centrosMap = new Map(centros.map(c2 => [c2.id, c2]));
   const cerrada = c.estado === 'contratado' || c.estado === 'anulada';
-  const prog = progresoDocumentos(checklist, documentos, c.tipo_trabajador);
+  const prog = progresoDocumentos(checklist, documentos, c.tipo_trabajador, c);
+  // El "Correo electrónico" del checklist se digita ahí mismo (no se sube);
+  // si ese ítem no aplica, el correo se sigue pidiendo en los datos.
+  const correoEnChecklist = prog.items.some(esItemCorreo);
   const docPorItem = new Map(documentos.map(d => [d.checklist_item_id, d]));
 
   // Último rechazo de homologación con documento(s) marcado(s) (migración
@@ -80,7 +84,30 @@ export async function renderContratacionDetalle(container, contratacionId, backV
         ${opts.map(([v, l]) => `<option value="${v}" ${v === value ? 'selected' : ''}>${l}</option>`).join('')}
       </select></div>`;
 
+  // Ítem "Correo electrónico": se digita (contrataciones.email_candidato), no se sube
+  const filaCorreo = (item) => {
+    const ok = emailValido(c.email_candidato);
+    const doc = docPorItem.get(item.id); // contrataciones antiguas: archivo subido antes del cambio
+    return `
+      <div class="chk-row ${ok || doc ? 'chk-ok' : ''}">
+        <div class="chk-info">
+          <div class="chk-nombre">${ok || doc ? '✅' : (item.obligatorio ? '⬜' : '◽')} ${escapeHtml(item.nombre)}
+            ${item.obligatorio ? '<span class="badge badge-neutral">Obligatorio</span>' : '<span class="badge badge-neutral">Opcional</span>'}
+            <span class="badge badge-neutral" title="Este dato se escribe, no se sube como archivo">Se digita</span>
+          </div>
+          ${editable
+            ? `<div class="chk-correo">
+                <input type="email" id="chk-email" placeholder="nombre@correo.cl" autocomplete="off" value="${escapeHtml(c.email_candidato ?? '')}">
+                <button class="btn btn-secondary btn-sm" id="chk-email-guardar">Guardar</button>
+              </div>`
+            : `<div class="muted">${c.email_candidato ? escapeHtml(c.email_candidato) : 'Sin digitar.'}</div>`}
+          ${doc ? `<div class="muted">Archivo subido antes: <button class="link-btn" data-doc="${doc.storage_path}">${escapeHtml(doc.nombre_archivo)}</button></div>` : ''}
+        </div>
+      </div>`;
+  };
+
   const checklistHtml = prog.items.map(item => {
+    if (esItemCorreo(item)) return filaCorreo(item);
     const doc = docPorItem.get(item.id);
     const subido = !!doc;
     return `
@@ -123,7 +150,7 @@ export async function renderContratacionDetalle(container, contratacionId, backV
         </div>
         <div class="form-grid-2">
           ${campo('Teléfono', 'telefono_candidato', c.telefono_candidato)}
-          ${campo('Correo', 'email_candidato', c.email_candidato, 'email')}
+          ${correoEnChecklist ? '' : campo('Correo', 'email_candidato', c.email_candidato, 'email')}
         </div>
         <div class="form-grid-2">
           ${selectField('Canal', 'canal', CANALES, c.canal)}
@@ -189,6 +216,33 @@ export async function renderContratacionDetalle(container, contratacionId, backV
       }
     });
   });
+
+  // Correo digitado en el checklist: se guarda solo ese dato
+  const emailBtn = container.querySelector('#chk-email-guardar');
+  if (emailBtn) {
+    const emailInp = container.querySelector('#chk-email');
+    const guardarEmail = async () => {
+      const valor = emailInp.value.trim();
+      if ((valor || null) === (c.email_candidato || null)) return;
+      if (valor && !emailValido(valor)) {
+        Toast.warning('Correo no válido', 'Revisa que tenga el formato nombre@dominio.cl.');
+        emailInp.focus();
+        return;
+      }
+      emailBtn.disabled = true; emailBtn.textContent = 'Guardando...';
+      try {
+        await Data.actualizarContratacion(contratacionId, { email_candidato: valor || null });
+        Toast.success('Correo guardado', valor || 'Se quitó el correo.');
+        renderContratacionDetalle(container, contratacionId, backView);
+      } catch (e) {
+        console.error('[contratacion-detalle] correo', e);
+        Toast.error('Error', e.message || 'No se pudo guardar el correo.');
+        emailBtn.disabled = false; emailBtn.textContent = 'Guardar';
+      }
+    };
+    emailBtn.addEventListener('click', guardarEmail);
+    emailInp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); guardarEmail(); } });
+  }
 
   const guardarBtn = container.querySelector('#guardar-datos');
   if (guardarBtn) {

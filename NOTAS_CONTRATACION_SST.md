@@ -2323,3 +2323,58 @@ Se activó con estas decisiones del usuario: **un resumen diario por persona** (
   cada adm. de obra con los suyos); segunda corrida el mismo día no manda nada; al bajar un contrato de 30 a 15 días y
   entrar otro a 29, avisa solo esos dos; la prueba no registra. Excluye indefinidos, inactivos, vencidos y > 30 días.
   La 0027 se probó en Postgres local con Vault, pg_cron y pg_net simulados (dos corridas, permisos de anon/authenticated).
+
+## 33. Compilar en un PC nuevo: "Could not load pdf-lib" (nov. 2026)
+
+`npm run build` fallaba con `[UNLOADABLE_DEPENDENCY] Could not load pdf-lib` porque en ese PC no se había corrido
+`npm install` después de que se agregaron `pdf-lib` y `@pdf-lib/fontkit` a `package.json` (sección 30). Se arregla con
+`npm install`. Vercel instala solo desde `package-lock.json`, así que allá no pasa. `vite.config.js` ahora resuelve los
+`npm:paquete@versión` de Deno con un plugin (`paquetes-npm-de-deno`) que usa la ruta completa del paquete instalado y,
+si falta, dice "Falta instalar el paquete ... Corre npm install". Probado: compila con el paquete, falla con ese mensaje
+sin él, y el servidor de desarrollo lo resuelve.
+
+## 34. "Sus solicitudes no requieren aprobación" (Gerente General) (nov. 2026)
+
+A pedido: las solicitudes del Gerente General no las aprueba nadie. Se decidió una **casilla por usuario** (no un rol
+nuevo): sigue siendo Solicitante, con sus mismos menús y permisos.
+- **Usuarios**: columna "Sin aprobación" (`perfiles.aprobacion_automatica`). Solo un admin la marca (trigger
+  `trg_proteger_aprobacion_automatica`; desde el SQL Editor también se puede). Sin la 0028 la columna aparece
+  deshabilitada y la lista carga igual.
+- **0028_solicitudes_sin_aprobacion.sql**, sin tocar `crear_solicitud` ni `crear_solicitud_cambio` (vale para todos
+  los tipos):
+  1. `trg_00_omitir_etapas_aprobacion_automatica` (BEFORE INSERT en aprobaciones): si quien solicita tiene la casilla,
+     las etapas no se crean.
+  2. `trg_aprobar_solicitud_automatica` (trigger de restricción DIFERIDO, AFTER INSERT en solicitudes): al confirmar la
+     creación, crea una etapa a su nombre con comentario "Aprobación automática" y la aprueba como si lo hiciera él
+     (claims del JWT, igual que el script 13). La lógica de aprobaciones de la base recalcula estado y tiempos, y corre
+     todo lo que depende de "aprobada" (renovación, desvinculación...). Si no quedó aprobada, la marca aprobada.
+  Mientras nadie tenga la casilla, la 0028 no cambia nada. Las solicitudes ya creadas no cambian.
+- **App**: la etapa se muestra como "Aprobación automática" (filas, Perfil del trabajador), "Nombre (aprobación
+  automática)" y "No requiere" en el comprobante, el PDF, el Excel y el correo; el Maestro PDF dice "Automática"; no
+  cuenta en los tiempos de respuesta del dashboard. El plazo de RRHH parte en la fecha de esa etapa. Al crear, el aviso
+  dice "quedó aprobada (no requiere aprobación). Se avisó a RRHH."
+- **Notificar**: si al "crear" la solicitud ya está aprobada y su única etapa es automática, manda el correo de
+  "aprobada" con el PDF a RRHH y a quien la pidió (texto propio: "no requiere aprobación"), en vez del aviso a aprobadores.
+- Probado: la 0028 dos veces en Postgres local con un modelo de crear_solicitud y de la lógica de aprobaciones (exige
+  auth.uid() = aprobador): la del Gerente General queda aprobada con su etapa automática y dispara lo que depende de
+  "aprobada"; la de otro usuario queda pendiente con sus 2 aprobadores; un solicitante no puede marcarse ni el Gerente
+  desmarcarse; el admin y el SQL Editor sí. Notificar: 2 correos (Gerente y RRHH) con el PDF. La app compila.
+- Pendiente de confirmar con `exportar_esquema.mjs`: que la versión real de crear_solicitud y de la lógica de
+  aprobaciones calce con el modelo (si no calzara, crear la solicitud da error y no se guarda nada).
+
+## 35. Contratación: el correo electrónico se digita, no se sube (nov. 2026)
+
+En el checklist de documentos de una contratación, "Correo electrónico" pedía subir un archivo. Ahora se **digita** ahí
+mismo (campo con botón Guardar; también guarda con Enter) y queda en `contrataciones.email_candidato`, el mismo dato que
+antes estaba en "Datos de la contratación" (de ahí se quitó para no tenerlo dos veces; si el ítem del checklist se
+desactivara, el campo vuelve a aparecer en los datos).
+- Sigue siendo obligatorio: cuenta como entregado con un correo válido (nombre@dominio.cl). Si una contratación antigua
+  ya tenía el correo subido como archivo, también cuenta, y el archivo se sigue viendo.
+- Homologación SST (prevencionista): la fila muestra el correo digitado o "Aún no lo digita RRHH."
+- **0029_correo_contratacion_digitado.sql**: `recalcular_estado_contratacion(id)` con esa regla (lo usa el trigger de
+  documentos de 0002, ahora vía `actualizar_estado_contratacion`), y un trigger nuevo que recalcula al digitar o cambiar
+  el correo o el tipo de trabajador. Al correrla recalcula las contrataciones en curso (las que solo esperaban el
+  "archivo" del correo y ya tienen correo pasan a "documentos completos"). Nunca toca contratado/anulada.
+- Probado: en Postgres local con la función original de 0002, dos corridas; correo malo no cuenta, bueno sí, borrarlo
+  vuelve a "en proceso", el archivo antiguo sigue contando, contratado no cambia. En la app: el correo malo no se guarda,
+  el bueno sí y el avance pasa de 1/4 a 2/4; se ve bien en el celular. Compila.

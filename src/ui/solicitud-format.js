@@ -12,6 +12,11 @@
 import { escapeHtml } from './utils.js';
 import { state } from '../core/state.js';
 import { TIPO_SOLICITUD_META, TIPO_RENOVACION_LABELS } from '../config.js';
+import { esAprobacionAutomatica } from '../../supabase/functions/_shared/sgc-documentos.js';
+
+export { esAprobacionAutomatica };
+/** Etiqueta de una etapa de aprobación en las filas ("Aprobador 2" o "Aprobación automática"). */
+export const etiquetaEtapa = (a) => (esAprobacionAutomatica(a) ? 'Aprobación automática' : `Aprobador ${a.orden}`);
 import { Data } from '../db/data.js';
 import { Toast } from './toast.js';
 

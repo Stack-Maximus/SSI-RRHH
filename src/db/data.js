@@ -175,7 +175,7 @@ export const Data = {
   async aprobacionesDe(solIds) {
     if (!solIds.length) return [];
     const { data, error } = await supabase
-      .from('aprobaciones').select('solicitud_id, orden, decision, aprobador_id, tiempo_respuesta, asignado_at, decidido_at').in('solicitud_id', solIds);
+      .from('aprobaciones').select('solicitud_id, orden, decision, aprobador_id, tiempo_respuesta, asignado_at, decidido_at, comentario').in('solicitud_id', solIds);
     if (error) throw error;
     return data || [];
   },
@@ -226,10 +226,13 @@ export const Data = {
 
   // ---------- Gestión de usuarios (admin) ----------
   async listUsuarios() {
-    const { data, error } = await supabase
-      .from('perfiles')
-      .select('id, nombre, email, rol, centro_costo_id, es_gerente_operaciones, es_gerente_prevencion, activo')
-      .order('nombre');
+    const campos = 'id, nombre, email, rol, centro_costo_id, es_gerente_operaciones, es_gerente_prevencion, activo';
+    // aprobacion_automatica la crea la migración 0028; si todavía no se corre,
+    // la lista se carga igual sin esa columna (la casilla aparece deshabilitada).
+    let { data, error } = await supabase.from('perfiles').select(campos + ', aprobacion_automatica').order('nombre');
+    if (error && /aprobacion_automatica/.test(error.message || '')) {
+      ({ data, error } = await supabase.from('perfiles').select(campos).order('nombre'));
+    }
     if (error) throw error;
     return data || [];
   },

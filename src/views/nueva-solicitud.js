@@ -902,8 +902,14 @@ async function onSubmit(e, getTipo) {
     const sol = TIPOS_CAMBIO.includes(tipo)
       ? await Data.crearSolicitudCambio(payload)
       : await Data.crearSolicitud(payload);
-    if (sol?.id) Data.notificar('pendiente_aprobador', sol.id); // fire-and-forget
-    Toast.success('Solicitud creada', `${sol?.codigo || ''} quedó pendiente de aprobación.`);
+    if (sol?.id) Data.notificar('pendiente_aprobador', sol.id); // fire-and-forget (si quedó aprobada sola, avisa a RRHH)
+    // Quien tiene "Sus solicitudes no requieren aprobación" (migración 0028)
+    // la ve aprobada apenas se crea: se relee el estado para avisarlo bien.
+    let estado = sol?.estado;
+    try { if (sol?.id) estado = (await Data.solicitudPorId(sol.id))?.estado ?? estado; } catch { /* se queda con el de la creación */ }
+    Toast.success('Solicitud creada', estado === 'aprobada'
+      ? `${sol?.codigo || ''} quedó aprobada (no requiere aprobación). Se avisó a RRHH.`
+      : `${sol?.codigo || ''} quedó pendiente de aprobación.`);
     Modal.close();
     window.Router.go('inicio');
   } catch (err) {

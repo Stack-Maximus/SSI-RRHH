@@ -617,6 +617,8 @@ var dmyIso = (iso, sep = "-") => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
   return m ? `${m[3]}${sep}${m[2]}${sep}${m[1]}` : iso || "\u2014";
 };
+var APROBACION_AUTOMATICA = "Aprobaci\xF3n autom\xE1tica";
+var esAprobacionAutomatica = (a) => a?.comentario === APROBACION_AUTOMATICA;
 var LARGOS = /^(motivo|modificaciones|observaciones|hito de la obra|nueva condición)$/i;
 function documentoComprobante(data, ref, hoy = /* @__PURE__ */ new Date()) {
   const { sol, cmap, aprs, pmap, trabNombre } = data;
@@ -657,13 +659,14 @@ function documentoComprobante(data, ref, hoy = /* @__PURE__ */ new Date()) {
   const largas = detalle.filter((c) => c.ancho === "completo");
   const filasAprob = aprs.slice().sort((a, b) => a.orden - b.orden).map((a) => {
     const ms = a.tiempo_respuesta != null ? a.tiempo_respuesta * 1e3 : a.decidido_at && a.asignado_at ? new Date(a.decidido_at).getTime() - new Date(a.asignado_at).getTime() : null;
+    const auto = esAprobacionAutomatica(a);
     return [
       String(a.orden),
-      pmap.get(a.aprobador_id)?.nombre ?? "\u2014",
+      auto ? `${pmap.get(a.aprobador_id)?.nombre ?? "\u2014"} (aprobaci\xF3n autom\xE1tica)` : pmap.get(a.aprobador_id)?.nombre ?? "\u2014",
       capital(String(a.decision ?? "pendiente")),
       fechaHora(a.asignado_at),
       a.decidido_at ? fechaHora(a.decidido_at) : "\u2014",
-      duracion(ms)
+      auto ? "No requiere" : duracion(ms)
     ];
   });
   return {
@@ -1591,7 +1594,12 @@ Deno.serve(async (req) => {
     if (!solicitud_id) return json({ error: "Falta solicitud_id." }, 400);
     const { data: sol, error: solErr } = await admin.from("solicitudes").select("id, codigo, folio, tipo, estado, solicitante_id, trabajador_id, centro_origen_id, centro_destino_id, motivo, detalle, created_at").eq("id", solicitud_id).single();
     if (solErr || !sol) return json({ error: "Solicitud no encontrada." }, 404);
-    if (type === "pendiente_aprobador") {
+    let evento = type;
+    if (type === "pendiente_aprobador" && sol.estado === "aprobada") {
+      const { data: etapas } = await admin.from("aprobaciones").select("comentario").eq("solicitud_id", sol.id);
+      if ((etapas ?? []).length && (etapas ?? []).every(esAprobacionAutomatica)) evento = "cambio_estado";
+    }
+    if (evento === "pendiente_aprobador") {
       if (sol.estado !== "pendiente") {
         return json({ ok: true, skipped: true, reason: `estado ${sol.estado}` });
       }
@@ -1617,7 +1625,7 @@ Deno.serve(async (req) => {
       }
       return json({ ok: true, enviados });
     }
-    if (type === "cambio_estado") {
+    if (evento === "cambio_estado") {
       if (sol.estado !== "aprobada" && sol.estado !== "rechazada") {
         return json({ ok: true, skipped: true, reason: `estado ${sol.estado} no notificable` });
       }
@@ -1830,7 +1838,9 @@ function correoRechazada(nombre, d, appUrl) {
 function correoAprobada(nombre, d, appUrl, rol, adjunto) {
   const tipo = escHtml(Tipo(d.sol.tipo));
   const aprobada = `<b style="color:${VERDE}">aprobada por todos los aprobadores</b>`;
-  const texto = rol === "rrhh" ? p0(`La solicitud de <b>${tipo}</b> fue ${aprobada}. Ya puedes continuar con el proceso (plazo: ${DIAS_HABILES_PROCESO_RRHH} d\xEDas h\xE1biles).`) : rol === "solicitante" ? p0(`Tu solicitud de <b>${tipo}</b> fue ${aprobada}. RRHH continuar\xE1 con el proceso.`) : p0(`La solicitud de <b>${tipo}</b> que aprobaste qued\xF3 ${aprobada}.`);
+  const automatica = d.aprs.length > 0 && d.aprs.every(esAprobacionAutomatica);
+  const quien = escHtml(d.pmap.get(d.sol.solicitante_id)?.nombre ?? "");
+  const texto = automatica ? rol === "rrhh" ? p0(`La solicitud de <b>${tipo}</b>${quien ? ` de <b>${quien}</b>` : ""} qued\xF3 <b style="color:${VERDE}">aprobada</b> al crearla: no requiere aprobaci\xF3n. Ya puedes continuar con el proceso (plazo: ${DIAS_HABILES_PROCESO_RRHH} d\xEDas h\xE1biles).`) : p0(`Tu solicitud de <b>${tipo}</b> qued\xF3 <b style="color:${VERDE}">aprobada</b>: no requiere aprobaci\xF3n. RRHH continuar\xE1 con el proceso.`) : rol === "rrhh" ? p0(`La solicitud de <b>${tipo}</b> fue ${aprobada}. Ya puedes continuar con el proceso (plazo: ${DIAS_HABILES_PROCESO_RRHH} d\xEDas h\xE1biles).`) : rol === "solicitante" ? p0(`Tu solicitud de <b>${tipo}</b> fue ${aprobada}. RRHH continuar\xE1 con el proceso.`) : p0(`La solicitud de <b>${tipo}</b> que aprobaste qued\xF3 ${aprobada}.`);
   const doc = documentoComprobante(d, REF_DOC);
   return correoSolicitud(d, {
     titulo: doc.encabezado.titulo,

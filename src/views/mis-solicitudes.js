@@ -7,7 +7,7 @@ import { state } from '../core/state.js';
 import { Data } from '../db/data.js';
 import { Toast, Confirm } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
-import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen, detalleHtml, descripcionIngreso } from '../ui/solicitud-format.js';
+import { estadoBadge, decisionBadge, tipoLabel, fechaCorta, resumen, detalleHtml, descripcionIngreso, etiquetaEtapa } from '../ui/solicitud-format.js';
 import { tablaFilas, fila, wireFilas } from '../ui/filas.js';
 import { nombreCandidatoRecl } from '../ui/contratacion-format.js';
 import { renderComprobante } from './comprobante.js';
@@ -65,7 +65,7 @@ export async function renderMisSolicitudes(container) {
     const enTurno = new Set(aprobacionesEnTurno(s));
     const aprs = s.aprobaciones || [];
     const steps = aprs.map(a =>
-      `<div class="sol-step ${enTurno.has(a) ? 'sol-step-turno' : ''}">Aprobador ${a.orden} ${decisionBadge(a.decision)}${enTurno.has(a) ? ' ' + esperaBadge(esperaDesde(s, a)) : ''}</div>`
+      `<div class="sol-step ${enTurno.has(a) ? 'sol-step-turno' : ''}">${etiquetaEtapa(a)} ${decisionBadge(a.decision)}${enTurno.has(a) ? ' ' + esperaBadge(esperaDesde(s, a)) : ''}</div>`
     ).join('');
     const aprobadas = aprs.filter(a => a.decision === 'aprobado').length;
     const turno = [...enTurno][0];

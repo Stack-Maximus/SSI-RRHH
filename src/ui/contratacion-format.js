@@ -54,10 +54,22 @@ export function checklistParaTipo(checklist, tipo) {
   return checklist.filter(c => c[campo]);
 }
 
-/** Progreso de documentos obligatorios subidos para una contratación */
-export function progresoDocumentos(checklist, documentos, tipoTrabajador) {
+/**
+ * El ítem "Correo electrónico" del checklist no se sube: se digita (es
+ * contrataciones.email_candidato). Cuenta como entregado con un correo
+ * válido (o, en contrataciones antiguas, si ya se había subido un archivo).
+ * Misma regla que la base (recalcular_estado_contratacion, migración 0029).
+ */
+export const CODIGO_CORREO = 'correo_electronico';
+export const esItemCorreo = (item) => item?.codigo === CODIGO_CORREO;
+export const emailValido = (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s ?? '').trim());
+
+/** Progreso de documentos obligatorios entregados para una contratación */
+export function progresoDocumentos(checklist, documentos, tipoTrabajador, contratacion = null) {
   const items = checklistParaTipo(checklist, tipoTrabajador);
   const subidosIds = new Set(documentos.map(d => d.checklist_item_id));
+  // el correo digitado cuenta como entregado
+  if (emailValido(contratacion?.email_candidato)) items.filter(esItemCorreo).forEach(i => subidosIds.add(i.id));
   const obligatorios = items.filter(i => i.obligatorio);
   const obligCompletos = obligatorios.filter(i => subidosIds.has(i.id)).length;
   const totalCompletos = items.filter(i => subidosIds.has(i.id)).length;

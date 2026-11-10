@@ -8,6 +8,7 @@ import { Data } from '../db/data.js';
 import { Toast } from '../ui/toast.js';
 import { escapeHtml } from '../ui/utils.js';
 import { TIPO_SOLICITUD_META } from '../config.js';
+import { esAprobacionAutomatica } from '../ui/solicitud-format.js';
 
 const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
 
@@ -68,7 +69,7 @@ export async function renderDashboard(container) {
   // tiempos de respuesta por aprobador (aprobaciones ya decididas)
   const porAprob = new Map();
   sols.forEach(s => (s.aprobaciones || []).forEach(a => {
-    if (!a.decidido_at || !a.asignado_at) return;
+    if (!a.decidido_at || !a.asignado_at || esAprobacionAutomatica(a)) return;
     const ms = new Date(a.decidido_at) - new Date(a.asignado_at);
     if (isNaN(ms) || ms < 0) return;
     const cur = porAprob.get(a.aprobador_id) || { sum: 0, n: 0 };

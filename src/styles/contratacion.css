@@ -48,3 +48,12 @@
 .chk-row.chk-ok { border-color: var(--success, #16a34a); background: var(--success-bg, rgba(22,163,74,.06)); }
 .chk-info { display: grid; gap: 2px; }
 .chk-nombre { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* "Correo electrónico" del checklist: se digita, no se sube (nov. 2026, migración 0029) */
+.chk-correo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.chk-correo input[type="email"] {
+  flex: 1 1 240px; min-width: 0; max-width: 360px;
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r);
+  font-size: 14px; background: var(--surface); color: var(--text); font-family: inherit;
+}
+.chk-row .chk-info { flex: 1 1 auto; min-width: 0; }

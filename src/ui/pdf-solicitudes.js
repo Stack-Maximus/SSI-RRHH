@@ -18,6 +18,7 @@
  */
 
 import { DOCUMENTO_CODIGOS, MAESTRO_SOLICITUDES_CODIGO } from '../../supabase/functions/_shared/solicitud-detalle.ts';
+import { esAprobacionAutomatica } from '../../supabase/functions/_shared/sgc-documentos.js';
 
 const limpiarNombre = (s) => String(s).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
 
@@ -88,7 +89,8 @@ export async function descargarMaestroPdf({ sols, centros, trab, perfiles }) {
         trabajador: s.trabajador_id ? (trab.get(s.trabajador_id)?.nombre ?? '—') : '',
         centro: centros.get(s.centro_origen_id)?.nombre ?? '',
         creada: s.created_at ? FECHA_CHILE.format(new Date(s.created_at)) : '',
-        aprobResumen: propias.length ? `${aprobadas}/${propias.length} · ${dur(totalMs) || '—'}` : 'Sin aprob.',
+        aprobResumen: propias.length && propias.every(esAprobacionAutomatica) ? 'Automática'
+          : propias.length ? `${aprobadas}/${propias.length} · ${dur(totalMs) || '—'}` : 'Sin aprob.',
       };
     });
   const { construirMaestroPdf } = await import('../../supabase/functions/_shared/pdf-maestro.ts');

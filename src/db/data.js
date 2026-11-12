@@ -4,7 +4,11 @@
 
 import { supabase } from '../core/supabase.js';
 
-const SOL_FIELDS = 'id, codigo, folio, tipo, estado, created_at, centro_origen_id, centro_destino_id, motivo, detalle, trabajador_id';
+// Incluye los cierres de RRHH y de Prevención (migración 0012): sin ellos las
+// listas mostraban "Marcar como procesado" / "Autorizar ingreso a obra" de
+// nuevo al recargar, aunque sí se habían guardado (nov. 2026).
+const SOL_FIELDS = 'id, codigo, folio, tipo, estado, created_at, centro_origen_id, centro_destino_id, motivo, detalle, trabajador_id, '
+  + 'procesado_rrhh_at, procesado_rrhh_por, homologacion_traslado_aprobada_at, homologacion_traslado_aprobada_por';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -635,10 +639,15 @@ export const Data = {
    * migración 0011); botón "Autorizar ingreso a obra" en Homologación SST.
    */
   async autorizarIngresoObra(contratacionId, userId) {
-    const { error } = await supabase.from('contrataciones')
+    const { data, error } = await supabase.from('contrataciones')
       .update({ homologacion_aprobada_at: new Date().toISOString(), homologacion_aprobada_por: userId })
-      .eq('id', contratacionId);
+      .eq('id', contratacionId)
+      .select('id, homologacion_aprobada_at');
     if (error) throw error;
+    if (!data?.length) {
+      throw new Error('No se guardó: puede que ya estuviera autorizado (recarga la página) o que la contratación no sea de una obra a tu cargo.');
+    }
+    return data[0].homologacion_aprobada_at;
   },
 
   // ---------- SLA de RRHH para los 6 tipos de solicitud ----------
@@ -668,10 +677,17 @@ export const Data = {
    * documentos de traslado).
    */
   async marcarProcesadoRRHH(solicitudId, userId) {
-    const { error } = await supabase.from('solicitudes')
+    // .select(): si la base no dejó cambiar la fila (RLS), el update no da
+    // error, solo no cambia nada; así se detecta y se avisa.
+    const { data, error } = await supabase.from('solicitudes')
       .update({ procesado_rrhh_at: new Date().toISOString(), procesado_rrhh_por: userId })
-      .eq('id', solicitudId);
+      .eq('id', solicitudId)
+      .select('id, procesado_rrhh_at');
     if (error) throw error;
+    if (!data?.length) {
+      throw new Error('No se guardó: puede que ya estuviera marcada como procesada (recarga la página) o que la solicitud no esté aprobada.');
+    }
+    return data[0].procesado_rrhh_at;
   },
 
   // ---------- Traslado: documentos para homologación ----------
@@ -718,10 +734,15 @@ export const Data = {
    * ver migración 0012); botón "Autorizar ingreso a obra" en Homologación SST.
    */
   async autorizarIngresoObraTraslado(solicitudId, userId) {
-    const { error } = await supabase.from('solicitudes')
+    const { data, error } = await supabase.from('solicitudes')
       .update({ homologacion_traslado_aprobada_at: new Date().toISOString(), homologacion_traslado_aprobada_por: userId })
-      .eq('id', solicitudId);
+      .eq('id', solicitudId)
+      .select('id, homologacion_traslado_aprobada_at');
     if (error) throw error;
+    if (!data?.length) {
+      throw new Error('No se guardó: puede que ya estuviera autorizado (recarga la página) o que el traslado no sea de una obra a tu cargo.');
+    }
+    return data[0].homologacion_traslado_aprobada_at;
   },
 
   // ---------- Rechazo de homologación SST (ver migración 0016) ----------

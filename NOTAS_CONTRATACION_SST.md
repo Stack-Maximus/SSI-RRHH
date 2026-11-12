@@ -2390,3 +2390,20 @@ A pedido, "Estado Civil (certificado/declaración)" del checklist de Contrataci�
 - En la app no hubo que cambiar nada: el checklist se lee de la base y ahora muestra "Opcional".
 - Probado en Postgres local: sin la 0029 avisa; dos corridas; la contratación que solo esperaba el estado civil pasa a
   completa, y si se vuelve a marcar obligatorio desde el checklist vuelve a "en proceso" al tiro (y al revés).
+
+## 37. "Marcar como procesado" parecía no guardarse (nov. 2026)
+
+Síntoma: RRHH marcaba una solicitud como procesada, se veía "✅ Procesado", pero al recargar volvía a aparecer el botón,
+sin ningún error ni log. Causa: **sí se guardaba**, pero las listas no leían esas columnas. `SOL_FIELDS` (data.js, el
+select de Solicitudes, Historial, Mis solicitudes, dashboards y Homologación) no incluía `procesado_rrhh_at/_por` ni
+`homologacion_traslado_aprobada_at/_por` (columnas de la 0012). Por lo mismo:
+- el dashboard RRHH nunca daba por cerradas las solicitudes de los tipos sin documento (aumento, bono, cambio de cargo,
+  cambio de turno, renovación, desvinculación), y
+- en Homologación SST, "Autorizar ingreso a obra" de un traslado también volvía a aparecer al recargar.
+Cada clic de más mandaba otra vez el correo "RRHH ya procesó tu solicitud".
+
+Arreglo (solo app, sin SQL): `SOL_FIELDS` incluye esas 4 columnas. Además `marcarProcesadoRRHH`,
+`autorizarIngresoObraTraslado` y `autorizarIngresoObra` piden de vuelta la fila actualizada: si la base no dejó
+cambiarla (RLS: ya estaba marcada, no está aprobada, no es de su obra), ahora sale un error claro en vez de "éxito" sin
+guardar, y no se manda el correo. Probado simulando las respuestas de la base (sin fila = error con mensaje; con fila =
+guarda y devuelve la fecha; la lista pide las 4 columnas). Compila.

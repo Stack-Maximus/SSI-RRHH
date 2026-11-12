@@ -412,10 +412,10 @@ function wireAcciones(root = document) {
       if (!ok) return;
       btn.disabled = true; btn.textContent = 'Guardando...';
       try {
-        await Data.marcarProcesadoRRHH(solicitudId, state.user.id);
+        const at = await Data.marcarProcesadoRRHH(solicitudId, state.user.id);
         Toast.success('Solicitud procesada', '');
         Data.notificarEvento('rrhh_cerrado', { solicitud_id: solicitudId }); // fire-and-forget
-        s.procesado_rrhh_at = new Date().toISOString();
+        s.procesado_rrhh_at = at || new Date().toISOString();
         s.procesado_rrhh_por = state.user.id;
         reRenderCard(s);
       } catch (e) {

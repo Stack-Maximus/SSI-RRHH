@@ -2,7 +2,7 @@
  * Vista de "olvidé mi contraseña": pide el email y dispara el envío del link de recuperación.
  */
 
-export function renderForgotPassword() {
+export function renderForgotPassword(aviso = '') {
   const app = document.getElementById('app');
   app.innerHTML = `
     <div id="login-screen">
@@ -23,7 +23,7 @@ export function renderForgotPassword() {
             <input type="email" id="forgot-email" required autocomplete="email"
                    placeholder="tu@metalium.cl" autofocus>
           </div>
-          <div id="forgot-error" class="login-error" hidden></div>
+          <div id="forgot-error" class="login-error" ${aviso ? '' : 'hidden'}>${aviso ? aviso.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]) : ''}</div>
           <div id="forgot-success" class="login-success" hidden></div>
           <button type="submit" class="btn-login" id="forgot-submit">Enviar enlace</button>
           <div class="login-help">

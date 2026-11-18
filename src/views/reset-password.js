@@ -45,6 +45,9 @@ export function renderResetPassword() {
           </div>
           <div id="reset-error" class="login-error" hidden></div>
           <button type="submit" class="btn-login" id="reset-submit">Cambiar contraseña</button>
+          <div class="login-help">
+            <a href="#" class="login-link" id="reset-back-to-login">← Volver al inicio de sesión</a>
+          </div>
         </form>
 
         <div class="login-footer">© Metalium SpA · SSI-RRHH v1.0 · Sistema interno</div>
@@ -65,4 +68,8 @@ export function renderResetPassword() {
   });
 
   document.getElementById('reset-form').addEventListener('submit', window.Auth.updatePassword);
+  document.getElementById('reset-back-to-login').addEventListener('click', (e) => {
+    e.preventDefault();
+    window.Auth.volverAlLogin();
+  });
 }

@@ -2407,3 +2407,33 @@ Arreglo (solo app, sin SQL): `SOL_FIELDS` incluye esas 4 columnas. Además `marc
 cambiarla (RLS: ya estaba marcada, no está aprobada, no es de su obra), ahora sale un error claro en vez de "éxito" sin
 guardar, y no se manda el correo. Probado simulando las respuestas de la base (sin fila = error con mensaje; con fila =
 guarda y devuelve la fecha; la lista pide las 4 columnas). Compila.
+
+## 38. Recuperar contraseña: enlaces "inválidos o vencidos" y error 429 (nov. 2026)
+
+Síntoma: al pedir el correo de recuperación, la consola mostraba 429, y el enlace del correo de Supabase llevaba a la
+app con `#error=access_denied&error_code=otp_expired` ("Email link is invalid or has expired").
+Causa (logs de Auth del 18-11, caso ndavila@): el enlace de Supabase es de un solo uso y lo "abre" cualquiera que lo
+visite. El filtro de seguridad del correo de Metalium lo abrió segundos después de llegar (GET a /verify desde la IP
+193.105.176.10, más un HEAD de Microsoft 104.47.x.x), así que cuando la persona hizo clic ya estaba usado. Al
+reintentar seguido, Supabase responde 429 ("you can only request this after N seconds": 1 correo por minuto). Además
+el correo salía de noreply@mail.app.supabase.io.
+
+Arreglo:
+- **Edge Function `recuperar-clave`** (nueva, Verify JWT desactivado): genera el token con
+  `auth.admin.generateLink({type:'recovery'})` (no manda correo) y lo envía desde el buzón Metalium (Graph), con el
+  diseño SGC, con un enlace a la propia app: `https://ssi-rrhh.vercel.app/?recuperar=<token>`. Responde lo mismo
+  exista o no la cuenta (o esté inactiva). Límite: 1 por minuto y 5 por hora por correo, 20 por hora por IP (429 con
+  mensaje claro).
+- **App**: abrir el enlace solo muestra el formulario de nueva contraseña (guarda el token en sessionStorage y lo
+  saca de la URL); el token recién se usa (`verifyOtp` type recovery) al apretar "Cambiar contraseña", así que el filtro
+  del correo ya no lo gasta. Si ya se usó o venció, lleva a "Recuperar contraseña" con el aviso. Los enlaces viejos de
+  Supabase con `otp_expired` también llevan ahí. Si `recuperar-clave` no está publicada o falla, se usa el correo de
+  Supabase como antes.
+- **0031_recuperacion_clave.sql**: tabla `recuperaciones_clave` (email, ip, fecha) para los límites; RLS sin
+  políticas (solo la función). La función borra lo de más de una semana.
+- Probado: la función con base simulada (correo inválido 400; repetido al tiro 429; cuenta inexistente o inactiva
+  responde igual y no manda nada; registro viejo borrado; correo con enlace a la app y todos sus íconos); la app con
+  Supabase simulado (abrir el enlace no llama a /verify, sobrevive a recargar, al guardar: verify -> user -> logout ->
+  login; token usado -> pantalla de pedir otro; enlace viejo vencido -> aviso; sin función -> correo de Supabase).
+- Pendiente (mismo problema): la invitación de usuarios nuevos (`invitar-usuario`) también manda un enlace de un solo
+  uso que el filtro puede gastar.

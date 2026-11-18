@@ -17,6 +17,18 @@ import { renderForgotPassword } from '../views/forgot-password.js';
 import { renderResetPassword } from '../views/reset-password.js';
 import { mensajeReglasFaltantes } from './password-policy.js';
 
+// ----- Recuperación de contraseña (nov. 2026) -----
+// El correo lo manda la Edge Function recuperar-clave (buzón Metalium) con un
+// enlace a la app: ?recuperar=<token>. El token se guarda aquí y recién se
+// usa (verifyOtp) cuando la persona escribe su nueva contraseña: así el filtro
+// de seguridad del correo, que abre los enlaces antes que la persona, ya no
+// lo gasta (era lo que dejaba los enlaces de Supabase "inválidos o vencidos").
+const CLAVE_TOKEN = 'ssi.recuperar';
+const guardarToken = (t) => { try { sessionStorage.setItem(CLAVE_TOKEN, t); } catch { /* sin storage */ } Auth._tokenRecuperacion = t; };
+const leerToken = () => { try { return sessionStorage.getItem(CLAVE_TOKEN) || Auth._tokenRecuperacion; } catch { return Auth._tokenRecuperacion; } };
+const borrarToken = () => { try { sessionStorage.removeItem(CLAVE_TOKEN); } catch { /* sin storage */ } Auth._tokenRecuperacion = null; };
+const AVISO_ENLACE_VENCIDO = 'El enlace ya se usó o venció. Pide uno nuevo aquí abajo: llega en uno o dos minutos.';
+
 // Minutos de inactividad antes de cerrar la sesión automáticamente.
 // Cambiá este número para ajustar el tiempo.
 const INACTIVIDAD_MIN = 30;
@@ -116,6 +128,26 @@ export const Auth = {
   },
 
   async checkSession() {
+    // Enlace del correo de recuperación (Edge Function recuperar-clave)
+    try {
+      const url = new URL(window.location.href);
+      const token = url.searchParams.get('recuperar');
+      if (token) {
+        guardarToken(token);
+        url.searchParams.delete('recuperar');
+        window.history.replaceState(null, '', url.pathname + url.search);
+      }
+    } catch { /* URL inválida: se ignora */ }
+    if (leerToken()) {
+      renderResetPassword();
+      return false;
+    }
+    // Enlace antiguo de Supabase que ya se había usado o venció
+    if (/error_code=otp_expired|error=access_denied/.test(window.location.hash)) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      renderForgotPassword(AVISO_ENLACE_VENCIDO);
+      return false;
+    }
     if (window.location.hash.includes('type=recovery')) {
       renderResetPassword();
       return false;
@@ -170,11 +202,8 @@ export const Auth = {
     btn.textContent = 'Enviando...';
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin
-      });
-      if (error) throw error;
-      successEl.textContent = 'Listo. Revisa tu correo (puede tardar 1-2 minutos). Si no llega, revisa el spam.';
+      const r = await Auth.pedirRecuperacion(email);
+      successEl.textContent = r?.mensaje || 'Listo. Revisa tu correo (puede tardar 1-2 minutos). Si no llega, revisa el spam.';
       successEl.hidden = false;
       btn.disabled = false;
       btn.textContent = 'Enviar enlace';
@@ -185,6 +214,40 @@ export const Auth = {
       btn.disabled = false;
       btn.textContent = 'Enviar enlace';
     }
+  },
+
+  /**
+   * Pide el correo de recuperación a la Edge Function recuperar-clave. Si
+   * responde con un aviso (correo inválido, espera un minuto) se muestra
+   * tal cual. Si la función no está publicada o falla, se usa el correo de
+   * Supabase como antes, para no dejar a nadie sin poder recuperar.
+   */
+  async pedirRecuperacion(email) {
+    try {
+      const { data, error } = await supabase.functions.invoke('recuperar-clave', { body: { email } });
+      if (!error) {
+        if (data?.error) throw Object.assign(new Error(data.error), { esAviso: true });
+        return data;
+      }
+      const status = error.context?.status;
+      if (status === 400 || status === 429) {
+        let cuerpo = null;
+        try { cuerpo = await error.context.json(); } catch { /* sin cuerpo */ }
+        throw Object.assign(new Error(cuerpo?.error || 'Espera un minuto antes de pedir otro correo.'), { esAviso: true });
+      }
+      console.warn('[recuperar-clave] no disponible, se usa el correo de Supabase:', status || error.message);
+    } catch (e) {
+      if (e.esAviso) throw e;
+      console.warn('[recuperar-clave] no disponible, se usa el correo de Supabase:', e.message);
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    if (error) throw error;
+    return null;
+  },
+
+  volverAlLogin() {
+    borrarToken();
+    renderLogin();
   },
 
   async updatePassword(event) {
@@ -212,14 +275,30 @@ export const Auth = {
     btn.textContent = 'Guardando...';
 
     try {
+      // Enlace de recuperar-clave: el token se usa recién ahora
+      const token = leerToken();
+      if (token) {
+        Auth._cambiandoClave = true;
+        const { error: eOtp } = await supabase.auth.verifyOtp({ token_hash: token, type: 'recovery' });
+        borrarToken();
+        if (eOtp) throw new Error(AVISO_ENLACE_VENCIDO);
+      }
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
+      Auth._cambiandoClave = false;
       Toast.success('Contraseña actualizada', 'Ya puedes iniciar sesión con tu nueva contraseña.');
       await supabase.auth.signOut();
       state.user = null;
       window.history.replaceState(null, '', window.location.pathname);
       renderLogin();
     } catch (e) {
+      Auth._cambiandoClave = false;
+      // enlace ya usado o vencido: directo a pedir uno nuevo
+      if (Auth.errorToHuman(e) === AVISO_ENLACE_VENCIDO) {
+        borrarToken();
+        renderForgotPassword(AVISO_ENLACE_VENCIDO);
+        return;
+      }
       errorEl.textContent = Auth.errorToHuman(e);
       errorEl.hidden = false;
       btn.disabled = false;
@@ -233,7 +312,9 @@ export const Auth = {
         state.user = null;
         renderLogin();
       }
-      if (event === 'PASSWORD_RECOVERY') {
+      // (al validar el token de recuperar-clave también llega este evento:
+      // el formulario ya está en pantalla, no se vuelve a dibujar)
+      if (event === 'PASSWORD_RECOVERY' && !Auth._cambiandoClave) {
         renderResetPassword();
       }
     });
@@ -249,6 +330,8 @@ export const Auth = {
       return 'Sin conexión. Verifica tu red.';
     }
     if (msg.includes('New password should be different')) return 'La nueva contraseña debe ser distinta a la anterior.';
+    if (msg.includes('only request this after')) return 'Ya te enviamos un correo hace menos de un minuto. Revisa tu bandeja (y el spam) antes de pedir otro.';
+    if (msg.includes('Auth session missing') || /expired|invalid.*(token|link)/i.test(msg)) return AVISO_ENLACE_VENCIDO;
     if (msg.includes('Password should be at least')) return 'La contraseña debe tener al menos 8 caracteres.';
     if (msg.toLowerCase().includes('password should contain') || msg.toLowerCase().includes('character of each')) {
       return 'La contraseña no cumple los requisitos de seguridad (mayúscula, minúscula, número o símbolo) configurados en Supabase.';
